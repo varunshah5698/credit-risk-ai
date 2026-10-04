@@ -63,12 +63,42 @@ export interface ScoreBreakdown {
   weight: number;
 }
 
+export interface EvidenceLayer {
+  /** items verified against primary sources */
+  verified: number;
+  /** model-derived estimates */
+  estimated: number;
+  /** stated assumptions */
+  assumed: number;
+  /** open questions / unresolved */
+  uncertain: number;
+}
+
+export interface StressScenario {
+  name: string;
+  detail: string;
+  /** impact on fair value, percent (negative = downside) */
+  impactPct: number;
+}
+
+export type Recommendation = "BUY" | "HOLD" | "NEGOTIATE" | "AVOID";
+
 export interface RiskAssessment {
   score: number; // 0–100, higher = safer
   tier: "A" | "B" | "C" | "D";
   tierLabel: "Prime" | "Investment Grade" | "Watch" | "High Risk";
   breakdown: ScoreBreakdown[];
   confidence: "High" | "Medium" | "Low";
+  /** risk-adjusted fair value range, USD per tonne */
+  fairValue: { low: number; point: number; high: number };
+  /** + = market priced above fair value (overpriced) */
+  mispricingPct: number;
+  recommendation: Recommendation;
+  recommendationWhy: string;
+  evidence: EvidenceLayer;
+  stresses: StressScenario[];
+  /** primary sources feeding this assessment */
+  sources: string[];
 }
 
 const WEIGHTS = {
@@ -100,7 +130,135 @@ function tierMeta(tier: RiskAssessment["tier"]): Pick<RiskAssessment, "tierLabel
   }
 }
 
-/** Deterministic, explainable composite score. Higher = lower risk. */
+/** Per-credit financial-intelligence inputs (illustrative sample data). */
+interface CreditIntel {
+  /** evidence-anchored intrinsic value before risk adjustment, USD/t */
+  anchorValue: number;
+  /** half-width of the fair-value band, fraction */
+  spread: number;
+  evidence: EvidenceLayer;
+  stresses: StressScenario[];
+  /** override the rule-derived recommendation where the story demands it */
+  rec?: Recommendation;
+  recWhy: string;
+  sources: string[];
+}
+
+const INTEL: Record<string, CreditIntel> = {
+  "VCS-1942": {
+    anchorValue: 13.1,
+    spread: 0.1,
+    evidence: { verified: 34, estimated: 9, assumed: 4, uncertain: 2 },
+    stresses: [
+      { name: "Methodology revision", detail: "VCS REDD+ methodology tightened", impactPct: -12 },
+      { name: "Market-wide selloff", detail: "Segment prices fall 30%", impactPct: -18 },
+    ],
+    recWhy: "Fairly priced against verified delivery history; deep 30-day turnover keeps exit risk low.",
+    sources: ["Registry issuance ledger", "2024 verification report", "Market trade tape"],
+  },
+  "GS-7703": {
+    anchorValue: 11.4,
+    spread: 0.14,
+    evidence: { verified: 18, estimated: 11, assumed: 7, uncertain: 6 },
+    stresses: [
+      { name: "Methodology downgrade", detail: "Revision removes baseline improvements", impactPct: -31 },
+      { name: "Leakage event", detail: "Deforestation displaces to buffer zone", impactPct: -24 },
+    ],
+    recWhy: "Trades near the top of its fair-value band while a methodology revision is still unresolved — the market has not priced the downside.",
+    sources: ["Registry issuance ledger", "Methodology consultation draft", "Trade tape"],
+  },
+  "GS-3311": {
+    anchorValue: 13.6,
+    spread: 0.12,
+    evidence: { verified: 26, estimated: 12, assumed: 5, uncertain: 4 },
+    stresses: [
+      { name: "Usage audit miss", detail: "Daily-use surveys fall below 60% benchmark", impactPct: -22 },
+      { name: "Distribution audit", detail: "Serialised stove IDs unverified for 18% of units", impactPct: -15 },
+    ],
+    recWhy: "Priced slightly above risk-adjusted value; credible issuer, but usage-survey evidence is thinner than peers.",
+    sources: ["Registry issuance ledger", "Independent usage survey", "Issuer disclosures"],
+  },
+  "ACR-5529": {
+    anchorValue: 17.2,
+    spread: 0.09,
+    evidence: { verified: 31, estimated: 8, assumed: 3, uncertain: 2 },
+    stresses: [
+      { name: "Wildfire reversal", detail: "Buffer pool contribution rises", impactPct: -9 },
+      { name: "Demand shift", detail: "Buyers move to durable removals", impactPct: -14 },
+    ],
+    recWhy: "Trades below risk-adjusted value with inventory-verified carbon stock and a long permanence buffer.",
+    sources: ["Registry inventory audit", "Verification report", "Market trade tape"],
+  },
+  "VCS-8817": {
+    anchorValue: 88.0,
+    spread: 0.16,
+    evidence: { verified: 29, estimated: 10, assumed: 4, uncertain: 3 },
+    stresses: [
+      { name: "Offtake non-renewal", detail: "Anchor corporate buyer exits", impactPct: -27 },
+      { name: "Liquidity shock", detail: "Exit discount widens to 20%", impactPct: -21 },
+    ],
+    recWhy: "Premium quality, but the current quote sits well above fair value and the float is too thin to exit quickly at scale.",
+    sources: ["Registry issuance ledger", "Offtake disclosures", "Broker quotes"],
+  },
+  "CAR-1140": {
+    anchorValue: 12.6,
+    spread: 0.18,
+    evidence: { verified: 9, estimated: 14, assumed: 11, uncertain: 9 },
+    stresses: [
+      { name: "Improper-improvement finding", detail: "Regulator questions baseline claims", impactPct: -44 },
+      { name: "Wildfire year", detail: "Two large reversal events", impactPct: -26 },
+      { name: "Vintage discount widens", detail: "Old vintages trade at 40% off", impactPct: -18 },
+    ],
+    recWhy: "Even the cheap quote is expensive: integrity findings, aged vintages and heavy oversupply put fair value far below the market.",
+    sources: ["Regulatory findings", "Registry retirement data", "Trade tape"],
+  },
+  "GS-9902": {
+    anchorValue: 7.1,
+    spread: 0.11,
+    evidence: { verified: 22, estimated: 10, assumed: 6, uncertain: 5 },
+    stresses: [
+      { name: "Additionality challenge", detail: "Review rules issuance ineligible", impactPct: -38 },
+      { name: "Grid-factor revision", detail: "Baseline emissions fall", impactPct: -16 },
+    ],
+    recWhy: "An additionality review is open and would invalidate future issuance — the tail risk is not reflected in the quote.",
+    sources: ["Registry review docket", "Grid emission factors", "Trade tape"],
+  },
+  "VCS-4408": {
+    anchorValue: 19.4,
+    spread: 0.13,
+    evidence: { verified: 21, estimated: 13, assumed: 6, uncertain: 5 },
+    stresses: [
+      { name: "Typhoon season", detail: "Plantation loss above buffer capacity", impactPct: -29 },
+      { name: "Track-record haircut", detail: "Third year of issuance missed", impactPct: -19 },
+    ],
+    recWhy: "Strong co-benefits and eligible methodology, but a two-year-old project with cyclone exposure deserves a wider discount than the market is giving.",
+    sources: ["Registry issuance ledger", "Satellite canopy indices", "Developer disclosures"],
+  },
+  "ACR-8861": {
+    anchorValue: 305.0,
+    spread: 0.2,
+    evidence: { verified: 24, estimated: 12, assumed: 4, uncertain: 2 },
+    stresses: [
+      { name: "Cost curve drop", detail: "DAC energy costs fall 40%", impactPct: -18 },
+      { name: "Policy retreat", detail: "Purchase incentives lapse", impactPct: -23 },
+    ],
+    recWhy: "Highest-integrity removal on the board and fairly priced for institutions; the constraint is access and float, not quality.",
+    sources: ["Registry issuance ledger", "Storage certification", "Broker quotes"],
+  },
+  "VCS-2260": {
+    anchorValue: 9.8,
+    spread: 0.15,
+    evidence: { verified: 14, estimated: 12, assumed: 8, uncertain: 7 },
+    stresses: [
+      { name: "Audit finding", detail: "Developer audit confirms over-issuance", impactPct: -34 },
+      { name: "Fire season", detail: "Reversal exceeds buffer pool", impactPct: -22 },
+    ],
+    recWhy: "An open developer audit and rising fire exposure cap what this credit is worth — negotiate hard or walk.",
+    sources: ["Audit engagement letter", "Registry issuance ledger", "Satellite fire alerts"],
+  },
+};
+
+/** Deterministic, explainable composite score + financial assessment. Higher score = lower risk. */
 export function assessRisk(c: Credit): RiskAssessment {
   const breakdown: ScoreBreakdown[] = [
     { key: "carbonIntegrity", label: "Carbon integrity", value: c.carbonIntegrity, weight: WEIGHTS.carbonIntegrity },
@@ -115,7 +273,47 @@ export function assessRisk(c: Credit): RiskAssessment {
   );
   const tier = tierFor(score);
   const { tierLabel, confidence } = tierMeta(tier);
-  return { score, tier, tierLabel, breakdown, confidence };
+
+  // Risk-adjusted fair value: evidence anchor, discounted by the composite risk score.
+  const intel = INTEL[c.id] ?? {
+    anchorValue: c.price,
+    spread: 0.12,
+    evidence: { verified: 12, estimated: 8, assumed: 5, uncertain: 4 },
+    stresses: [],
+    recWhy: "Assessed from market and registry data on file.",
+    sources: ["Registry issuance ledger", "Market trade tape"],
+  };
+  const riskFactor = 0.4 + 0.6 * (score / 100);
+  const point = intel.anchorValue * riskFactor;
+  const fairValue = {
+    low: point * (1 - intel.spread),
+    point,
+    high: point * (1 + intel.spread),
+  };
+  const mispricingPct = ((c.price - point) / point) * 100;
+
+  // Rule-derived recommendation; per-credit intel may override where context demands.
+  let recommendation: Recommendation;
+  if (mispricingPct > 12) recommendation = "AVOID";
+  else if (mispricingPct > 4) recommendation = "NEGOTIATE";
+  else if (mispricingPct < -8) recommendation = "BUY";
+  else recommendation = "HOLD";
+  if (intel.rec) recommendation = intel.rec;
+
+  return {
+    score,
+    tier,
+    tierLabel,
+    breakdown,
+    confidence,
+    fairValue,
+    mispricingPct,
+    recommendation,
+    recommendationWhy: intel.recWhy,
+    evidence: intel.evidence,
+    stresses: intel.stresses,
+    sources: intel.sources,
+  };
 }
 
 export const RISK_WEIGHTS_SUMMARY: ScoreBreakdown[] = [

@@ -130,8 +130,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       <span className="flex size-10 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
                         <ShieldCheck className="size-5" />
                       </span>
-                      <span className="font-display text-lg font-bold tracking-tight">
-                        Carbon<span className="text-primary">Lens</span>
+                      <span className="font-display text-lg font-bold tracking-[0.08em]">
+                        CARBON<span className="text-primary">IQ</span>
                       </span>
                     </button>
                   </div>
@@ -283,7 +283,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           )}
 
           <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-foreground/[0.03] border-t border-border/70 rounded-b-lg">
-            Risk intelligence, not investment advice · v1
+            CARBONIQ · Financial intelligence, not investment advice
           </div>
         </Card>
         </div>

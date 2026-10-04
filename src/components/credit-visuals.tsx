@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   assessRisk,
   type Credit,
+  type EvidenceLayer,
   type RiskAssessment,
 } from "@/lib/credits";
 
@@ -198,6 +199,69 @@ export function TierBadge({ tier, className }: { tier: RiskAssessment["tier"]; c
       <span className="text-foreground/50">·</span>
       {label}
     </span>
+  );
+}
+
+/** BUY / HOLD / NEGOTIATE / AVOID decision chip (mono, terminal-style). */
+export function RecommendationBadge({
+  rec,
+  className,
+}: {
+  rec: RiskAssessment["recommendation"];
+  className?: string;
+}) {
+  const styles: Record<string, string> = {
+    BUY: "border-emerald-300/35 bg-emerald-400/12 text-emerald-300",
+    HOLD: "border-lime-300/25 bg-lime-400/8 text-lime-300",
+    NEGOTIATE: "border-amber-300/35 bg-amber-400/10 text-amber-300",
+    AVOID: "border-red-400/35 bg-red-500/10 text-red-400",
+  };
+  return (
+    <span
+      className={cn(
+        "num inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-bold tracking-[0.08em]",
+        styles[rec],
+        className,
+      )}
+    >
+      {rec}
+    </span>
+  );
+}
+
+/** Evidence confidence stack: verified / estimated / assumed / uncertain. */
+export function EvidenceBar({ evidence }: { evidence: EvidenceLayer }) {
+  const total =
+    evidence.verified + evidence.estimated + evidence.assumed + evidence.uncertain || 1;
+  const segs = [
+    { n: evidence.verified, cls: "bg-emerald-400/80", label: "Verified" },
+    { n: evidence.estimated, cls: "bg-lime-400/60", label: "Estimated" },
+    { n: evidence.assumed, cls: "bg-amber-400/60", label: "Assumed" },
+    { n: evidence.uncertain, cls: "bg-red-400/50", label: "Uncertain" },
+  ];
+  return (
+    <div>
+      <div className="flex h-2 overflow-hidden rounded-full bg-foreground/8">
+        {segs.map((s, i) => (
+          <motion.div
+            key={s.label}
+            className={s.cls}
+            initial={{ width: 0 }}
+            whileInView={{ width: `${(s.n / total) * 100}%` }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.7, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
+          />
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+        {segs.map((s) => (
+          <span key={s.label} className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span className={cn("size-1.5 rounded-full", s.cls)} />
+            {s.label} <span className="num text-foreground/70">{s.n}</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -3,9 +3,11 @@ import { useNavigate } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
+  AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   CircleDot,
+  FileSearch,
   Landmark,
   Leaf,
   ListFilter,
@@ -26,7 +28,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  EvidenceBar,
   FactorBars,
+  RecommendationBadge,
   ScoreRing,
   Sparkline,
   TierBadge,
@@ -141,8 +145,8 @@ function CreditRow({
           </div>
         </div>
 
-        {/* price */}
-        <div className="w-24 shrink-0">
+        {/* price vs fair value */}
+        <div className="w-28 shrink-0">
           <div className="num text-sm font-semibold">{fmtMoney(c.price)}</div>
           <div
             className={cn(
@@ -152,6 +156,9 @@ function CreditRow({
           >
             {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
             {fmtPct(c.priceChange)}
+          </div>
+          <div className="num mt-0.5 text-[10px] text-muted-foreground/70">
+            FV {fmtMoney(risk.fairValue.point)}
           </div>
         </div>
 
@@ -168,6 +175,7 @@ function CreditRow({
 
         {/* tier */}
         <div className="ml-auto flex shrink-0 items-center gap-3">
+          <RecommendationBadge rec={risk.recommendation} className="hidden md:inline-flex" />
           <TierBadge tier={risk.tier} className="hidden sm:inline-flex" />
           <ScanSearch className="size-4 text-muted-foreground/50 transition-colors group-hover:text-primary" />
         </div>
@@ -179,9 +187,66 @@ function CreditRow({
 function CreditDetail({ entry }: { entry: { credit: Credit; risk: ReturnType<typeof assessRisk> } }) {
   const { credit: c, risk } = entry;
   const up = c.priceChange >= 0;
+  const over = risk.mispricingPct >= 0;
+  const span = Math.max(c.price, risk.fairValue.high) * 1.12;
 
   return (
     <div className="space-y-5">
+      {/* valuation confrontation */}
+      <div className="rounded-xl border border-border/70 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h4 className="text-sm font-semibold tracking-tight">Risk-adjusted fair value</h4>
+          <RecommendationBadge rec={risk.recommendation} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-border/70 bg-foreground/[0.02] p-3">
+            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">Market quote</div>
+            <div className="num mt-1 text-lg font-semibold">{fmtMoney(c.price)}</div>
+          </div>
+          <div className="rounded-lg border border-primary/25 bg-primary/5 p-3">
+            <div className="text-[10px] uppercase tracking-[0.14em] text-primary/80">Fair value (point)</div>
+            <div className="num mt-1 text-lg font-semibold text-primary">{fmtMoney(risk.fairValue.point)}</div>
+            <div className="num text-[10px] text-muted-foreground/70">
+              band {fmtMoney(risk.fairValue.low)} – {fmtMoney(risk.fairValue.high)}
+            </div>
+          </div>
+          <div className="rounded-lg border border-border/70 bg-foreground/[0.02] p-3">
+            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">Mispricing</div>
+            <div className={cn("num mt-1 text-lg font-semibold", over ? "text-amber-300" : "text-emerald-400")}>
+              {over ? "+" : ""}
+              {risk.mispricingPct.toFixed(1)}%
+            </div>
+            <div className="text-[10px] text-muted-foreground/70">{over ? "priced above fair value" : "priced below fair value"}</div>
+          </div>
+        </div>
+        {/* price vs band visual */}
+        <div className="mt-4">
+          <div className="relative h-2.5 overflow-hidden rounded-full bg-foreground/8">
+            <div
+              className="absolute inset-y-0 bg-emerald-400/25"
+              style={{
+                left: `${(risk.fairValue.low / span) * 100}%`,
+                width: `${((risk.fairValue.high - risk.fairValue.low) / span) * 100}%`,
+              }}
+            />
+            <div
+              className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-primary bar-glow"
+              style={{ left: `${Math.min((risk.fairValue.point / span) * 100, 99)}%` }}
+            />
+            <div
+              className="absolute top-1/2 h-3.5 w-[3px] -translate-y-1/2 rounded-full bg-amber-300"
+              style={{ left: `${Math.min((c.price / span) * 100, 99.5)}%` }}
+            />
+          </div>
+          <div className="num mt-1.5 flex justify-between text-[10px] text-muted-foreground/60">
+            <span>$0</span>
+            <span className="text-primary">▮ fair value</span>
+            <span className="text-amber-300">▮ market quote</span>
+          </div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">{risk.recommendationWhy}</p>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-3">
         {[
           { k: "Listed volume", v: `${fmtTonnes(c.volumeAvailable)} t` },
@@ -230,6 +295,56 @@ function CreditDetail({ entry }: { entry: { credit: Credit; risk: ReturnType<typ
             </li>
           ))}
         </ul>
+      </div>
+
+      {/* evidence confidence */}
+      <div className="rounded-xl border border-border/70 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <FileSearch className="size-4 text-primary" />
+          <h4 className="text-sm font-semibold tracking-tight">Evidence confidence</h4>
+          <span className="num ml-auto text-[10px] uppercase tracking-wider text-muted-foreground/60">
+            {risk.evidence.verified + risk.evidence.estimated + risk.evidence.assumed + risk.evidence.uncertain} inputs
+          </span>
+        </div>
+        <EvidenceBar evidence={risk.evidence} />
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {risk.sources.map((s) => (
+            <span key={s} className="num rounded border border-border/70 bg-foreground/[0.03] px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {s}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* stress tests */}
+      <div className="rounded-xl border border-border/70 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <AlertTriangle className="size-4 text-amber-300" />
+          <h4 className="text-sm font-semibold tracking-tight">Stress scenarios</h4>
+        </div>
+        <div className="space-y-2">
+          {risk.stresses.map((s, i) => (
+            <motion.div
+              key={s.name}
+              initial={{ opacity: 0, x: -10 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: i * 0.07 }}
+              className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-foreground/[0.02] px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="text-xs font-medium">{s.name}</div>
+                <div className="truncate text-[11px] text-muted-foreground">{s.detail}</div>
+              </div>
+              <span className="num shrink-0 rounded border border-red-400/25 bg-red-500/8 px-2 py-0.5 text-xs font-semibold text-red-400">
+                {s.impactPct}%
+              </span>
+            </motion.div>
+          ))}
+          {risk.stresses.length === 0 && (
+            <div className="text-xs text-muted-foreground">No adverse scenarios on file.</div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -298,10 +413,10 @@ export default function Dashboard() {
             </div>
             <div>
               <div className="font-display text-lg font-bold leading-none tracking-tight">
-                Carbon<span className="text-primary">Lens</span>
+                Carbon<span className="text-primary">IQ</span>
               </div>
               <div className="num mt-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground/70">
-                Risk Terminal v1
+                Financial intelligence
               </div>
             </div>
           </div>
@@ -327,12 +442,12 @@ export default function Dashboard() {
             Live scoring · sample data
           </div>
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight sm:text-4xl">
-            Credit <span className="gradient-text">Risk Terminal</span>
+            Credit <span className="gradient-text">Intelligence Terminal</span>
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Every listed credit, scored across six weighted factors — integrity, delivery,
-            liquidity, regulatory eligibility, issuer credibility and MRV — so you can see
-            the risk behind the price.
+            Every listed credit is scored across six weighted factors, valued on a
+            risk-adjusted fair-value band, and tested against adverse scenarios — so you
+            know what you are buying, what it is worth, and what could make you regret it.
           </p>
         </motion.section>
 
@@ -454,7 +569,7 @@ export default function Dashboard() {
         </section>
 
         <p className="mt-10 text-center text-[11px] leading-5 text-muted-foreground/50">
-          CarbonLens v1 · Illustrative sample data · Scores are weighted composites, not investment advice.
+          CarbonIQ · Illustrative sample data · Risk-adjusted valuations are model estimates, not investment advice.
         </p>
       </div>
 
