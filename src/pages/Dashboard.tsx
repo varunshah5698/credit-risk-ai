@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
@@ -11,13 +10,11 @@ import {
   Landmark,
   Leaf,
   ListFilter,
-  LogOut,
   ScanSearch,
   ShieldCheck,
   SlidersHorizontal,
   TrendingUp,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +23,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/hooks/use-auth";
 import {
   EvidenceBar,
   FactorBars,
@@ -37,16 +33,15 @@ import {
 } from "@/components/credit-visuals";
 import {
   assessRisk,
-  CREDITS,
   fmtMoney,
   fmtPct,
   fmtTonnes,
   scoredCredits,
   type Credit,
   type Region,
-  type Registry,
 } from "@/lib/credits";
 import { cn } from "@/lib/utils";
+import { WorkspaceNav } from "@/components/dashboard-shell";
 
 type SortMode = "score" | "price" | "liquidity";
 
@@ -351,8 +346,6 @@ function CreditDetail({ entry }: { entry: { credit: Credit; risk: ReturnType<typ
 }
 
 export default function Dashboard() {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("score");
   const [region, setRegion] = useState<Region | "All">("All");
@@ -382,11 +375,6 @@ export default function Dashboard() {
     return list;
   }, [query, sort, region, minScore]);
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/");
-  };
-
   const avg = Math.round(
     scoredCredits.reduce((a, e) => a + e.risk.score, 0) / scoredCredits.length,
   );
@@ -399,36 +387,9 @@ export default function Dashboard() {
       {/* ambient background */}
       <div className="pointer-events-none fixed inset-0 bg-grid opacity-60 [mask-image:radial-gradient(70%_50%_at_50%_0%,black,transparent)]" />
 
+      <WorkspaceNav />
+
       <div className="relative mx-auto w-full max-w-6xl px-4 pb-16 pt-6 sm:px-6">
-        {/* header */}
-        <motion.header
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="flex flex-wrap items-center justify-between gap-3"
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-lg border border-primary/30 bg-primary/10">
-              <ShieldCheck className="size-5 text-primary" />
-            </div>
-            <div>
-              <div className="font-display text-lg font-bold leading-none tracking-tight">
-                Carbon<span className="text-primary">IQ</span>
-              </div>
-              <div className="num mt-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground/70">
-                Financial intelligence
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="num hidden text-xs text-muted-foreground sm:block">
-              {user?.name ?? user?.email ?? "analyst"}
-            </span>
-            <Button variant="outline" size="sm" className="gap-2" onClick={handleSignOut}>
-              <LogOut className="size-3.5" /> Sign out
-            </Button>
-          </div>
-        </motion.header>
 
         {/* page title */}
         <motion.section

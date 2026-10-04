@@ -20,6 +20,25 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const Portfolio = lazy(() => import("./components/dashboard-shell.tsx"));
+const Marketplace = lazy(() =>
+  import("./components/marketplace.tsx").then((m) => ({ default: m.MarketplaceScreen })),
+);
+const Scans = lazy(() =>
+  import("./components/marketplace.tsx").then((m) => ({ default: m.CorridorScans })),
+);
+const Analytics = lazy(() =>
+  import("./components/insights.tsx").then((m) => ({ default: m.AnalyticsScreen })),
+);
+const Terminal = lazy(() =>
+  import("./components/insights.tsx").then((m) => ({ default: m.TerminalScreen })),
+);
+const Ledger = lazy(() =>
+  import("./components/ledger.tsx").then((m) => ({ default: m.LedgerScreen })),
+);
+const NewTrade = lazy(() =>
+  import("./components/ledger.tsx").then((m) => ({ default: m.BuySellWorkspace })),
+);
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -137,6 +156,62 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <RequireAuth>
                     <Dashboard />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/portfolio"
+                element={
+                  <RequireAuth>
+                    <Portfolio />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/marketplace"
+                element={
+                  <RequireAuth>
+                    <Marketplace />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/scans"
+                element={
+                  <RequireAuth>
+                    <Scans />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/analytics"
+                element={
+                  <RequireAuth>
+                    <Analytics />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/ledger"
+                element={
+                  <RequireAuth>
+                    <Ledger />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/terminal"
+                element={
+                  <RequireAuth>
+                    <Terminal />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/portfolio/new"
+                element={
+                  <RequireAuth>
+                    <NewTrade />
                   </RequireAuth>
                 }
               />

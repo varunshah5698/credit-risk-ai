@@ -1,40 +1,29 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { AnimatePresence, motion } from "framer-motion";
+import { Link, useLocation, useNavigate } from "react-router";
+import { motion } from "framer-motion";
 import {
   Activity,
   AlertTriangle,
-  ArrowRight,
-  Build,
   ChevronDown,
-  CircleDollarSign,
   DollarSign,
-  Eye,
   FileSearch,
   Filter,
   Gauge,
   LayoutDashboard,
-  Lifebuoy,
   LineChart,
   ListTodo,
-  Loader2,
-  MapPin,
+  LogOut,
+  Mail,
   Menu,
-  MessageSquareQuote,
-  Packet,
-  PenLine,
   Plus,
   Radar,
-  RefreshCcw,
   Router,
   ScanSearch,
   Scale,
-  Search,
   ShieldCheck,
   TrendingUp,
   Users,
   Wallet,
-  X,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,7 +32,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
@@ -53,12 +41,11 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { EvidenceBar, ScoreRing, Sparkline } from "@/components/credit-visuals";
 import {
   assessRisk,
-  CREDITS,
   fmtMoney,
   fmtPct,
-  fmtTonnes,
   scoredCredits,
   type Credit,
 } from "@/lib/credits";
@@ -180,32 +167,15 @@ const SIGNALS = [
   },
 ];
 
-const RISK_SIGNALS = [
-  {
-    title: "Carbon integrity",
-    value: 78,
-    color: "text-emerald-300",
-    bar: "bg-emerald-400/70",
-  },
-  {
-    title: "Delivery confidence",
-    value: 66,
-    color: "text-amber-300",
-    bar: "bg-amber-400/70",
-  },
-  {
-    title: "Regulatory eligibility",
-    value: null,
-    note: "FLAGGED",
-    color: "text-red-400",
-    bar: "bar-glow-red",
-  },
-];
-
 export default function DashboardShell() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState("Portfolio");
+  const location = useLocation();
+  const active =
+    NAV.find(
+      (n) =>
+        location.pathname === n.href || location.pathname.startsWith(`${n.href}/`),
+    )?.name ?? "Portfolio";
 
   if (!isAuthenticated) {
     return (
@@ -299,11 +269,13 @@ export default function DashboardShell() {
           </div>
           <div className="flex items-center gap-2">
             <span className="num hidden text-xs text-muted-foreground sm:block">
-              {useAuth().user?.name ?? useAuth().user?.email ?? "analyst"}
+              {user?.name ?? user?.email ?? "analyst"}
             </span>
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => {}}>
-              <ScanSearch className="size-3.5" />
-              Monitor
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <Link to="/scans">
+                <ScanSearch className="size-3.5" />
+                Monitor
+              </Link>
             </Button>
           </div>
         </header>
@@ -516,12 +488,12 @@ export default function DashboardShell() {
             { icon: <DollarSign className="size-4" />, label: "Net exposure", value: "$218.4K" },
             { icon: <ShieldCheck className="size-4" />, label: "Worst-case drawdown", value: "12.4%" },
             { icon: <Activity className="size-4" />, label: "30-day change", value: "+2.1%" },
-          ].map((s) => (
+          ].map((s, i) => (
             <motion.div
               key={s.label}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.12 + Math.random() * 0.1 }}
+              transition={{ duration: 0.4, delay: 0.12 + i * 0.06 }}
               className="glass rounded-xl p-4"
             >
               <div className="flex items-center gap-2 text-muted-foreground/70">
@@ -582,7 +554,6 @@ function RecommendationBadge({
 
 export function RiskFactorCard({ credit }: { credit: Credit }) {
   const { breakdown } = assessRisk(credit);
-  const maxWeight = Math.max(...breakdown.map((b) => b.weight));
   return (
     <Card className="glass">
       <CardHeader>
@@ -673,7 +644,7 @@ export function CreditDetailCard({ credit, risk }: { credit: Credit; risk: Retur
   const [state, setState] = useState<
     "due diligence" | "valuation" | "stress" | "lifecycle" | "monitoring"
   >("due diligence");
-  const { breakdown, evidence, stresses, recommendation, recommendationWhy, sources, confidence } = risk;
+  const { evidence, stresses, recommendation, recommendationWhy, sources, confidence } = risk;
 
   const dueDiligenceSteps = [
     { n: "01", title: "Registry reconciliation", body: "Issued volume, vintage set, and provider metadata are reconciled against the source ledger." },
@@ -889,5 +860,76 @@ export function CreditDetailCard({ credit, risk }: { credit: Credit; risk: Retur
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/* ------------------ shared workspace navigation (all authenticated screens) ------------------ */
+
+export function WorkspaceNav() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
+
+  return (
+    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/75 backdrop-blur-xl">
+      <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4 sm:px-6">
+        <Link to="/dashboard" className="flex shrink-0 items-center gap-2">
+          <span className="flex size-8 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+            <ShieldCheck className="size-4" />
+          </span>
+          <span className="font-display text-base font-bold tracking-[0.08em]">
+            CARBON<span className="text-primary">IQ</span>
+          </span>
+        </Link>
+
+        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {NAV.map((n) => {
+            const active =
+              location.pathname === n.href ||
+              location.pathname.startsWith(`${n.href}/`);
+            return (
+              <Link
+                key={n.name}
+                to={n.href}
+                className={cn(
+                  "flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  active
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {n.icon}
+                {n.name}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="num hidden text-xs text-muted-foreground lg:block">
+            {user?.name ?? user?.email ?? "analyst"}
+          </span>
+          <Button asChild size="sm" className="gap-1.5">
+            <Link to="/portfolio/new">
+              <Plus className="size-3.5" /> New trade
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={handleSignOut}
+          >
+            <LogOut className="size-3.5" />
+            <span className="hidden sm:inline">Sign out</span>
+          </Button>
+        </div>
+      </div>
+    </header>
   );
 }
