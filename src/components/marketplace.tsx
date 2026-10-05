@@ -44,6 +44,7 @@ import {
   RiskFactorCard,
   WorkspaceNav,
 } from "@/components/dashboard-shell";
+import { CreditAnalyticsPanel } from "@/components/credit-analytics";
 
 const SCAN_KINDS = [
   { id: "mispricing", label: "Mispricing radar", icon: <Radar className="size-4" />, blurb: "Market quote vs risk-adjusted fair value across every listed credit." },
@@ -94,7 +95,11 @@ export function MarketplaceScreen() {
   const supply = scoredCredits.reduce((a, e) => a + e.credit.volumeAvailable, 0);
 
   const kpis = [
-    { label: "Listed supply", value: `${fmtTonnes(supply)} t`, sub: "across 10 credits" },
+    {
+      label: "Listed supply",
+      value: `${fmtTonnes(supply)} t`,
+      sub: `across ${scoredCredits.length} companies`,
+    },
     { label: "Avg mispricing", value: `${avgMis >= 0 ? "+" : ""}${avgMis.toFixed(1)}%`, sub: "market vs fair value" },
     { label: "BUY · HOLD", value: String(accum), sub: "accumulate or hold calls" },
     { label: "AVOID flags", value: String(avoids), sub: "priced above the band" },
@@ -125,7 +130,8 @@ export function MarketplaceScreen() {
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
               Every listing carries a risk-adjusted fair value, an explainable
               recommendation and the evidence behind it — so the tape never gets the
-              last word.
+              last word. Select any company to chart its price, risk profile, stress
+              bars and evidence mix below.
             </p>
           </div>
           <Button asChild className="gap-2">
@@ -265,6 +271,16 @@ export function MarketplaceScreen() {
             <ComparableCredits credit={selected.credit} />
           </aside>
         </div>
+
+        <motion.section
+          initial={{ opacity: 0, y: 14 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-80px" }}
+          transition={{ duration: 0.45 }}
+          className="mt-8"
+        >
+          <CreditAnalyticsPanel credit={selected.credit} risk={risk} />
+        </motion.section>
       </main>
       <ScreenFooter />
     </div>

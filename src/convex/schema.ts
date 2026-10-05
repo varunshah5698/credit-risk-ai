@@ -91,6 +91,25 @@ const schema = defineSchema(
       .index("by_credit", ["creditId"])
       .index("by_transaction", ["transactionId"]),
 
+    // Stripe checkout records for credit purchases (server-verified payments).
+    payments: defineTable({
+      userId: v.string(),
+      creditId: v.string(),
+      creditName: v.string(),
+      tonnes: v.number(),
+      pricePerTonne: v.number(),
+      amountUsd: v.number(),
+      currency: v.string(),
+      stripeSessionId: v.string(),
+      stripePaymentIntent: v.optional(v.string()),
+      receiptId: v.string(),
+      status: v.union(v.literal("paid"), v.literal("refunded"), v.literal("failed")),
+      createdAt: v.number(),
+    })
+      .index("by_session", ["stripeSessionId"])
+      .index("by_user", ["userId"])
+      .index("by_time", ["createdAt"]),
+
     // Environmental + satellite evidence feeds wired into evidence confidence.
     evidenceFeeds: defineTable({
       creditId: v.string(),

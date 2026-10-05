@@ -88,7 +88,7 @@ function NavItem({
 }
 
 const STATS = [
-  { label: "Holdings", value: "14", sub: "credits across 4 registries" },
+  { label: "Holdings", value: String(scoredCredits.length), sub: "credits across 4 registries" },
   { label: "Avg risk score", value: "71", sub: "weighted composite /100" },
   { label: "Listed value", value: "$384K", sub: "in the open market" },
   { label: "Watch list", value: "2", sub: "tier C or below" },

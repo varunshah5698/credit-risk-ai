@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { useAction } from "convex/react";
 import { motion } from "framer-motion";
 import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
   CheckCircle2,
+  CreditCard,
   FileText,
   Lock,
   Loader2,
@@ -35,7 +37,10 @@ import {
 } from "@/lib/credits";
 import { cn } from "@/lib/utils";
 import { RecommendationBadge, ScoreRing } from "@/components/credit-visuals";
+import { CreditAnalyticsPanel } from "@/components/credit-analytics";
 import { CreditDetailCard, WorkspaceNav } from "@/components/dashboard-shell";
+import { api } from "@/convex/_generated/api";
+import { STRIPE_KEY_TAIL, STRIPE_MODE } from "@/lib/stripe";
 
 /* ===================== custody book (illustrative sample data) ===================== */
 
@@ -131,7 +136,7 @@ export function LedgerScreen() {
           </div>
           <Button asChild className="gap-2">
             <Link to="/portfolio/new">
-              <Plus className="size-4" /> Simulate a purchase
+              <Plus className="size-4" /> Buy credits
             </Link>
           </Button>
         </motion.section>
@@ -332,9 +337,18 @@ export function LedgerScreen() {
   );
 }
 
-/* ===================== /portfolio/new — three-step buy workflow ===================== */
+/* ===================== /portfolio/new — Stripe buy workflow ===================== */
 
+/** Test-mode trading limit for the workflow; the server re-validates each order. */
 const WALLET_BALANCE = 350_000;
+
+interface Settlement {
+  receipt: string;
+  creditId: string;
+  tonnes: number;
+  amountUsd: number;
+  paymentIntent: string | null;
+}
 
 export function BuySellWorkspace() {
   const [params] = useSearchParams();
@@ -347,6 +361,59 @@ export function BuySellWorkspace() {
   const [selected, setSelected] = useState<Credit | null>(preselect);
   const [tonnes, setTonnes] = useState(1_000);
 
+  const createCheckout = useAction(api.payments.createCheckoutSession);
+  const confirmCheckout = useAction(api.payments.confirmCheckoutSession);
+
+  const [paying, setPaying] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [summary, setSummary] = useState<Settlement | null>(null);
+  const confirmedRef = useRef<string | null>(null);
+
+  const checkoutState = params.get("checkout");
+  const checkoutSessionId = params.get("session_id");
+
+  // Stripe redirects back with ?checkout=success&session_id=... — verify the
+  // payment server-side and book the position before showing the receipt.
+  useEffect(() => {
+    if (
+      checkoutState !== "success" ||
+      !checkoutSessionId ||
+      confirmedRef.current === checkoutSessionId
+    ) {
+      return;
+    }
+    confirmedRef.current = checkoutSessionId;
+    setVerifying(true);
+    setPayError(null);
+    confirmCheckout({ sessionId: checkoutSessionId })
+      .then((res) => {
+        if (res.paid) {
+          setSummary({
+            receipt: res.receipt ?? "—",
+            creditId: res.creditId ?? "—",
+            tonnes: res.tonnes,
+            amountUsd: res.amountUsd,
+            paymentIntent: res.paymentIntent,
+          });
+          setPhase("settled");
+        } else {
+          setPayError(
+            `Stripe reports this payment as "${res.status}" — no charge was captured.`,
+          );
+          setPhase(preselect ? "chosen" : "idle");
+        }
+      })
+      .catch((err: unknown) => {
+        setPayError(
+          err instanceof Error ? err.message : "Could not confirm the Stripe payment.",
+        );
+        setPhase(preselect ? "chosen" : "idle");
+      })
+      .finally(() => setVerifying(false));
+  }, [checkoutState, checkoutSessionId, confirmCheckout, preselect]);
+
   const unit = selected?.price ?? 0;
   const cost = unit * tonnes;
   const overBalance = cost > WALLET_BALANCE;
@@ -358,6 +425,9 @@ export function BuySellWorkspace() {
     setSelected(null);
     setTonnes(1_000);
     setPhase("idle");
+    setPayError(null);
+    setNotice(null);
+    setSummary(null);
   };
 
   const advance = () => {
@@ -366,19 +436,41 @@ export function BuySellWorkspace() {
       setPhase("chosen");
     } else if (phase === "chosen" && !overBalance) {
       setPhase("execute");
-    } else if (phase === "execute") {
-      setPhase("settled");
     }
   };
 
-  const primaryLabel =
-    phase === "idle"
-      ? "Open workflow"
-      : phase === "chosen"
-        ? "Confirm credit"
-        : phase === "execute"
-          ? "Sign simulated deal"
-          : "View ledger";
+  const startCheckout = async () => {
+    if (!selected) return;
+    setPaying(true);
+    setPayError(null);
+    setNotice(null);
+    try {
+      const res = await createCheckout({
+        creditId: selected.id,
+        creditName: selected.name,
+        registry: selected.registry,
+        tonnes,
+        pricePerTonne: unit,
+        origin: window.location.origin,
+      });
+      // Open hosted Checkout in a new tab (previews render inside an iframe
+      // that Stripe refuses to frame); fall back to same-tab if popups block.
+      const opened = window.open(res.url, "_blank");
+      if (opened) {
+        setPaying(false);
+        setNotice(
+          "Stripe Checkout opened in a new tab — complete the payment there and you'll be returned to this flow with a server-verified receipt.",
+        );
+      } else {
+        window.location.assign(res.url);
+      }
+    } catch (err) {
+      setPayError(
+        err instanceof Error ? err.message : "Stripe Checkout could not be started.",
+      );
+      setPaying(false);
+    }
+  };
 
   return (
     <div className="relative min-h-screen overflow-x-clip">
@@ -391,20 +483,24 @@ export function BuySellWorkspace() {
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="num text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-              Buy workflow · simulated wallet
+              Buy workflow · Stripe checkout
             </div>
             <h1 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">
               {phase === "idle"
                 ? "Pick a credit"
                 : phase === "chosen"
-                  ? "Due diligence & wallet"
+                  ? "Due diligence & order"
                   : phase === "execute"
-                    ? "Execute the trade"
-                    : "Trade settled"}
+                    ? "Secure checkout"
+                    : "Payment settled"}
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Simulated wallet and payment — no real money, card or counterparty. The
-              position lands in your custody ledger the moment it clears.
+              Card payments run through Stripe{" "}
+              {STRIPE_MODE === "test"
+                ? "(test mode — no real funds move)"
+                : "(live mode)"}
+              . Stripe confirms the charge to the server, the receipt is written to your
+              account, and the position lands in your custody ledger.
             </p>
           </div>
           {phase === "settled" ? (
@@ -413,21 +509,53 @@ export function BuySellWorkspace() {
                 View ledger <ArrowRight className="size-4" />
               </Link>
             </Button>
+          ) : phase === "execute" ? (
+            <Badge
+              variant="outline"
+              className="border-primary/30 bg-primary/10 text-[10px] text-primary"
+            >
+              <CreditCard className="mr-1 size-3" />
+              {STRIPE_MODE === "test" ? "STRIPE TEST MODE" : "STRIPE LIVE"} · pk_…{STRIPE_KEY_TAIL}
+            </Badge>
           ) : (
             <Button
               onClick={advance}
               disabled={phase === "chosen" && overBalance}
               className="gap-2"
             >
-              {phase === "idle" && <Plus className="size-4" />}
-              {phase === "chosen" && <Zap className="size-4" />}
-              {phase === "execute" && <ShieldCheck className="size-4" />}
-              {primaryLabel}
+              {phase === "idle" ? <Plus className="size-4" /> : <Zap className="size-4" />}
+              {phase === "idle" ? "Open workflow" : "Continue to payment"}
             </Button>
           )}
         </header>
 
         <div className="mt-6 space-y-5">
+          {verifying && (
+            <div className="glass flex items-center gap-3 rounded-xl p-5 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              Confirming your Stripe payment with the server — this only takes a moment.
+            </div>
+          )}
+
+          {payError && (
+            <div className="rounded-xl border border-red-400/25 bg-red-500/[0.04] p-4 text-xs leading-5 text-red-300">
+              {payError}
+            </div>
+          )}
+
+          {notice && (
+            <div className="rounded-xl border border-primary/25 bg-primary/[0.05] p-4 text-xs leading-5 text-primary/90">
+              {notice}
+            </div>
+          )}
+
+          {checkoutState === "cancelled" && phase !== "execute" && phase !== "settled" && (
+            <div className="rounded-xl border border-amber-300/25 bg-amber-400/[0.04] p-4 text-xs leading-5 text-amber-200/90">
+              Stripe Checkout was cancelled — no charge was made. Pick the credit again when
+              you're ready to pay.
+            </div>
+          )}
+
           {phase === "idle" && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {scoredCredits.slice(0, 6).map((entry) => {
@@ -466,25 +594,25 @@ export function BuySellWorkspace() {
 
           {phase === "chosen" && (
             <div className="grid gap-5 lg:grid-cols-3">
-              <div className="lg:col-span-2">
-                {selected && (
-                  <CreditDetailCard credit={selected} risk={assessRisk(selected)} />
-                )}
+              <div className="space-y-5 lg:col-span-2">
+                {selected && <CreditDetailCard credit={selected} risk={assessRisk(selected)} />}
+                {selected && <CreditAnalyticsPanel credit={selected} risk={assessRisk(selected)} />}
               </div>
               <div className="glass h-fit rounded-xl p-5">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">Wallet simulation</h4>
+                  <h4 className="text-sm font-semibold">Order & payment</h4>
                   <Badge
                     variant="outline"
                     className="border-primary/30 bg-primary/10 text-[10px] text-primary"
                   >
-                    <Zap className="mr-1 size-3" /> SIMULATED
+                    <CreditCard className="mr-1 size-3" /> STRIPE{" "}
+                    {STRIPE_MODE === "test" ? "TEST" : "LIVE"}
                   </Badge>
                 </div>
                 <div className="mt-4 space-y-3">
                   <div className="rounded-lg border border-border/60 bg-foreground/[0.02] p-3">
                     <div className="num text-[10px] uppercase tracking-wider text-muted-foreground/60">
-                      Available balance
+                      Test-mode trading limit
                     </div>
                     <div className="num mt-1 text-lg font-bold">
                       {fmtMoney(WALLET_BALANCE)}
@@ -533,7 +661,7 @@ export function BuySellWorkspace() {
                   </div>
                   {overBalance && (
                     <p className="text-xs text-red-400">
-                      Cost exceeds the simulated balance — lower the quantity.
+                      Cost exceeds the test-mode trading limit — lower the quantity.
                     </p>
                   )}
                   {selected && (
@@ -548,7 +676,7 @@ export function BuySellWorkspace() {
                       onClick={() => setPhase("execute")}
                       disabled={overBalance}
                     >
-                      <Zap className="size-4" /> Simulate transfer
+                      <CreditCard className="size-4" /> Continue to payment
                     </Button>
                     <Button variant="outline" onClick={reset}>
                       Change
@@ -559,35 +687,41 @@ export function BuySellWorkspace() {
             </div>
           )}
 
-          {phase === "execute" && (
+          {phase === "execute" && selected && (
             <div className="glass rounded-xl p-5">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin text-primary" />
-                Clearing on CarbonLedger — simulated confirmation, no funds move.
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="size-4 text-primary" />
+                  <h4 className="text-sm font-semibold">Secure checkout · Stripe</h4>
+                </div>
+                <Badge
+                  variant="outline"
+                  className="border-primary/30 bg-primary/10 text-[10px] text-primary"
+                >
+                  {STRIPE_MODE === "test" ? "TEST MODE" : "LIVE"} · pk_…{STRIPE_KEY_TAIL}
+                </Badge>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                {[
-                  { v: "0.4s", l: "signature" },
-                  { v: "0.8s", l: "matching" },
-                  { v: "1.0s", l: "settlement" },
-                ].map((s) => (
-                  <div
-                    key={s.l}
-                    className="rounded-xl border border-border/60 bg-foreground/[0.02] p-4 text-center"
-                  >
-                    <div className="num text-2xl font-bold text-primary">{s.v}</div>
-                    <div className="num text-[11px] text-muted-foreground/60">{s.l}</div>
-                  </div>
-                ))}
-              </div>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                You'll be redirected to Stripe's hosted checkout to pay by card.
+                {STRIPE_MODE === "test" && (
+                  <>
+                    {" "}
+                    Use test card{" "}
+                    <span className="num text-foreground/80">4242 4242 4242 4242</span> with any
+                    future expiry and CVC — test mode never moves real funds.
+                  </>
+                )}{" "}
+                The server verifies the session and writes the receipt to your account before the
+                position is booked.
+              </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[
-                  { label: "Txn hash", value: "0x9f2c…d7e1" },
-                  { label: "Credit", value: selected?.id ?? "—" },
-                  { label: "Amount", value: `${fmtTonnes(tonnes)} t` },
-                  { label: "Total", value: fmtMoney(cost) },
-                  { label: "Fee", value: "0.00%" },
-                  { label: "Suite", value: "CarbonLedger" },
+                  { label: "Credit", value: selected.id },
+                  { label: "Company", value: selected.name },
+                  { label: "Quantity", value: `${fmtTonnes(tonnes)} t` },
+                  { label: "Price per tonne", value: fmtMoney(unit) },
+                  { label: "Total due", value: fmtMoney(cost) },
+                  { label: "Processor", value: "Stripe · card" },
                 ].map((s) => (
                   <div
                     key={s.label}
@@ -596,16 +730,26 @@ export function BuySellWorkspace() {
                     <div className="num text-[10px] uppercase tracking-wider text-muted-foreground/60">
                       {s.label}
                     </div>
-                    <div className="num mt-1 text-sm font-bold">{s.value}</div>
+                    <div className="num mt-1 truncate text-sm font-bold">{s.value}</div>
                   </div>
                 ))}
               </div>
               <div className="mt-4 flex gap-3">
-                <Button className="flex-1 gap-2" onClick={() => setPhase("settled")}>
-                  <ShieldCheck className="size-4" /> Sign & settle
+                <Button className="flex-1 gap-2" onClick={startCheckout} disabled={paying}>
+                  {paying ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="size-4" />
+                  )}
+                  {paying ? "Opening Stripe…" : `Pay ${fmtMoney(cost)} with Stripe`}
                 </Button>
-                <Button variant="outline" className="gap-2" onClick={() => setPhase("chosen")}>
-                  <RefreshCw className="size-4" /> Retry
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => setPhase("chosen")}
+                  disabled={paying}
+                >
+                  <RefreshCw className="size-4" /> Back
                 </Button>
               </div>
             </div>
@@ -619,24 +763,22 @@ export function BuySellWorkspace() {
                 </span>
                 <div>
                   <h4 className="text-sm font-semibold">
-                    Trade settled — position in custody
+                    Payment settled — position recorded to your account
                   </h4>
                   <p className="num text-[11px] text-muted-foreground/70">
-                    0x9f2c…d7e1 · just now · receipt issued
+                    Stripe {summary?.paymentIntent ?? "checkout"} · verified server-side ·
+                    receipt issued
                   </p>
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[
-                  { label: "Credit", value: selected?.id ?? "—" },
-                  { label: "Amount", value: `${fmtTonnes(tonnes)} t` },
-                  { label: "Total paid", value: fmtMoney(cost) },
-                  {
-                    label: "Balance after",
-                    value: fmtMoney(WALLET_BALANCE - cost),
-                  },
-                  { label: "Fee", value: "0.00%" },
-                  { label: "Receipt", value: "RCPT-2026-1004-01" },
+                  { label: "Credit", value: summary?.creditId ?? selected?.id ?? "—" },
+                  { label: "Amount", value: `${fmtTonnes(summary?.tonnes ?? tonnes)} t` },
+                  { label: "Total paid", value: fmtMoney(summary?.amountUsd ?? cost) },
+                  { label: "Method", value: "Stripe · card" },
+                  { label: "Receipt", value: summary?.receipt ?? "—" },
+                  { label: "Status", value: "PAID" },
                 ].map((s) => (
                   <div
                     key={s.label}
@@ -645,7 +787,7 @@ export function BuySellWorkspace() {
                     <div className="num text-[10px] uppercase tracking-wider text-muted-foreground/60">
                       {s.label}
                     </div>
-                    <div className="num mt-1 text-sm font-bold">{s.value}</div>
+                    <div className="num mt-1 truncate text-sm font-bold">{s.value}</div>
                   </div>
                 ))}
               </div>
@@ -667,7 +809,7 @@ export function BuySellWorkspace() {
       <footer className="relative border-t border-border/60 py-6">
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-4 text-xs text-muted-foreground/50 sm:flex-row sm:px-6">
           <span>CARBONIQ · financial intelligence, not investment advice</span>
-          <span className="num">PILOT BUILD · SAMPLE DATA · WALLET SIMULATED</span>
+          <span className="num">PILOT BUILD · SAMPLE DATA · STRIPE TEST MODE</span>
         </div>
       </footer>
     </div>
