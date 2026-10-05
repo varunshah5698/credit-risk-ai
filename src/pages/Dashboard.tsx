@@ -1,12 +1,10 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
-  AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
-  CircleDot,
-  FileSearch,
   Landmark,
   Leaf,
   ListFilter,
@@ -15,17 +13,8 @@ import {
   SlidersHorizontal,
   TrendingUp,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  EvidenceBar,
-  FactorBars,
   RecommendationBadge,
   ScoreRing,
   Sparkline,
@@ -179,178 +168,12 @@ function CreditRow({
   );
 }
 
-function CreditDetail({ entry }: { entry: { credit: Credit; risk: ReturnType<typeof assessRisk> } }) {
-  const { credit: c, risk } = entry;
-  const up = c.priceChange >= 0;
-  const over = risk.mispricingPct >= 0;
-  const span = Math.max(c.price, risk.fairValue.high) * 1.12;
-
-  return (
-    <div className="space-y-5">
-      {/* valuation confrontation */}
-      <div className="rounded-xl border border-border/70 p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h4 className="text-sm font-semibold tracking-tight">Risk-adjusted fair value</h4>
-          <RecommendationBadge rec={risk.recommendation} />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-border/70 bg-foreground/[0.02] p-3">
-            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">Market quote</div>
-            <div className="num mt-1 text-lg font-semibold">{fmtMoney(c.price)}</div>
-          </div>
-          <div className="rounded-lg border border-primary/25 bg-primary/5 p-3">
-            <div className="text-[10px] uppercase tracking-[0.14em] text-primary/80">Fair value (point)</div>
-            <div className="num mt-1 text-lg font-semibold text-primary">{fmtMoney(risk.fairValue.point)}</div>
-            <div className="num text-[10px] text-muted-foreground/70">
-              band {fmtMoney(risk.fairValue.low)} – {fmtMoney(risk.fairValue.high)}
-            </div>
-          </div>
-          <div className="rounded-lg border border-border/70 bg-foreground/[0.02] p-3">
-            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">Mispricing</div>
-            <div className={cn("num mt-1 text-lg font-semibold", over ? "text-amber-300" : "text-emerald-400")}>
-              {over ? "+" : ""}
-              {risk.mispricingPct.toFixed(1)}%
-            </div>
-            <div className="text-[10px] text-muted-foreground/70">{over ? "priced above fair value" : "priced below fair value"}</div>
-          </div>
-        </div>
-        {/* price vs band visual */}
-        <div className="mt-4">
-          <div className="relative h-2.5 overflow-hidden rounded-full bg-foreground/8">
-            <div
-              className="absolute inset-y-0 bg-emerald-400/25"
-              style={{
-                left: `${(risk.fairValue.low / span) * 100}%`,
-                width: `${((risk.fairValue.high - risk.fairValue.low) / span) * 100}%`,
-              }}
-            />
-            <div
-              className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-primary bar-glow"
-              style={{ left: `${Math.min((risk.fairValue.point / span) * 100, 99)}%` }}
-            />
-            <div
-              className="absolute top-1/2 h-3.5 w-[3px] -translate-y-1/2 rounded-full bg-amber-300"
-              style={{ left: `${Math.min((c.price / span) * 100, 99.5)}%` }}
-            />
-          </div>
-          <div className="num mt-1.5 flex justify-between text-[10px] text-muted-foreground/60">
-            <span>$0</span>
-            <span className="text-primary">▮ fair value</span>
-            <span className="text-amber-300">▮ market quote</span>
-          </div>
-        </div>
-        <p className="mt-3 text-xs leading-5 text-muted-foreground">{risk.recommendationWhy}</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        {[
-          { k: "Listed volume", v: `${fmtTonnes(c.volumeAvailable)} t` },
-          { k: "30-day traded", v: `${fmtTonnes(c.monthlyVolume)} t` },
-          { k: "Vintages", v: c.vintages.join(", ") },
-        ].map((s) => (
-          <div key={s.k} className="rounded-lg border border-border/70 bg-foreground/[0.02] p-3">
-            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">{s.k}</div>
-            <div className="num mt-1 text-sm font-medium">{s.v}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-xl border border-border/70 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h4 className="text-sm font-semibold tracking-tight">Weighted risk factors</h4>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
-            confidence: {risk.confidence}
-          </span>
-        </div>
-        <FactorBars credit={c} />
-      </div>
-
-      <div className="rounded-xl border border-border/70 p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <TrendingUp className="size-4 text-primary" />
-          <h4 className="text-sm font-semibold tracking-tight">12-month price history</h4>
-        </div>
-        <Sparkline data={c.priceHistory} positive={up} width={560} height={110} />
-        <div className="num mt-1 flex justify-between text-[10px] text-muted-foreground/60">
-          <span>12 mo ago · {fmtMoney(c.priceHistory[0])}</span>
-          <span>now · {fmtMoney(c.price)}</span>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border/70 p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <ShieldCheck className="size-4 text-primary" />
-          <h4 className="text-sm font-semibold tracking-tight">Analyst flags</h4>
-        </div>
-        <ul className="space-y-1.5">
-          {c.flags.map((f) => (
-            <li key={f} className="flex items-start gap-2 text-sm text-muted-foreground">
-              <CircleDot className="mt-0.5 size-3 shrink-0 text-primary/70" />
-              {f}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* evidence confidence */}
-      <div className="rounded-xl border border-border/70 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <FileSearch className="size-4 text-primary" />
-          <h4 className="text-sm font-semibold tracking-tight">Evidence confidence</h4>
-          <span className="num ml-auto text-[10px] uppercase tracking-wider text-muted-foreground/60">
-            {risk.evidence.verified + risk.evidence.estimated + risk.evidence.assumed + risk.evidence.uncertain} inputs
-          </span>
-        </div>
-        <EvidenceBar evidence={risk.evidence} />
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {risk.sources.map((s) => (
-            <span key={s} className="num rounded border border-border/70 bg-foreground/[0.03] px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {s}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* stress tests */}
-      <div className="rounded-xl border border-border/70 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <AlertTriangle className="size-4 text-amber-300" />
-          <h4 className="text-sm font-semibold tracking-tight">Stress scenarios</h4>
-        </div>
-        <div className="space-y-2">
-          {risk.stresses.map((s, i) => (
-            <motion.div
-              key={s.name}
-              initial={{ opacity: 0, x: -10 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4, delay: i * 0.07 }}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-foreground/[0.02] px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="text-xs font-medium">{s.name}</div>
-                <div className="truncate text-[11px] text-muted-foreground">{s.detail}</div>
-              </div>
-              <span className="num shrink-0 rounded border border-red-400/25 bg-red-500/8 px-2 py-0.5 text-xs font-semibold text-red-400">
-                {s.impactPct}%
-              </span>
-            </motion.div>
-          ))}
-          {risk.stresses.length === 0 && (
-            <div className="text-xs text-muted-foreground">No adverse scenarios on file.</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Dashboard() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("score");
   const [region, setRegion] = useState<Region | "All">("All");
   const [minScore, setMinScore] = useState(0);
-  const [selected, setSelected] = useState<(typeof scoredCredits)[number] | null>(null);
+  const navigate = useNavigate();
 
   const rows = useMemo(() => {
     let list = scoredCredits.filter(({ credit: c, risk }) => {
@@ -512,7 +335,7 @@ export default function Dashboard() {
                   key={entry.credit.id}
                   entry={entry}
                   rank={i + 1}
-                  onSelect={() => setSelected(entry)}
+                  onSelect={() => navigate(`/credit/${entry.credit.id}`)}
                 />
               ))}
             </AnimatePresence>
@@ -534,58 +357,6 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* detail dialog */}
-      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="max-h-[85vh] max-w-2xl gap-0 overflow-y-auto border-border/80 bg-popover p-0">
-          {selected && (
-            <>
-              <div className="sticky top-0 z-10 border-b border-border/70 bg-popover/95 px-6 pb-4 pt-5 backdrop-blur">
-                <DialogHeader className="space-y-0 text-left">
-                  <div className="flex items-start gap-4">
-                    <ScoreRing
-                      score={selected.risk.score}
-                      tier={selected.risk.tier}
-                      size={72}
-                      strokeWidth={6}
-                      animateOnView={false}
-                    />
-                    <div className="flex-1">
-                      <DialogTitle className="font-display text-xl tracking-tight">
-                        {selected.credit.name}
-                      </DialogTitle>
-                      <DialogDescription className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                        <span className="num">{selected.credit.id}</span>
-                        <span>{selected.credit.registry}</span>
-                        <span>{selected.credit.type}</span>
-                        <span>{selected.credit.country}</span>
-                      </DialogDescription>
-                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                        <TierBadge tier={selected.risk.tier} />
-                        <span className="num rounded-md border border-border/70 px-2 py-0.5 text-xs font-semibold">
-                          {fmtMoney(selected.credit.price)} / t
-                        </span>
-                        <span
-                          className={cn(
-                            "num inline-flex items-center gap-0.5 rounded-md border px-2 py-0.5 text-xs",
-                            selected.credit.priceChange >= 0
-                              ? "border-emerald-300/25 text-emerald-400"
-                              : "border-red-400/25 text-red-400",
-                          )}
-                        >
-                          {fmtPct(selected.credit.priceChange)} 12m
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </DialogHeader>
-              </div>
-              <div className="px-6 py-5">
-                <CreditDetail entry={selected} />
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </main>
   );
 }

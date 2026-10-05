@@ -13,7 +13,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  ShieldCheck,
   X,
   Zap,
 } from "lucide-react";
@@ -189,7 +188,12 @@ export function LedgerScreen() {
                 >
                   <div className="min-w-[190px] flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold tracking-tight">{p.credit.name}</span>
+                      <Link
+                        to={`/credit/${p.credit.id}`}
+                        className="font-semibold tracking-tight transition-colors hover:text-primary"
+                      >
+                        {p.credit.name}
+                      </Link>
                       <RecommendationBadge rec={p.risk.recommendation} />
                     </div>
                     <div className="num text-[11px] text-muted-foreground/70">
@@ -609,6 +613,14 @@ export function BuySellWorkspace() {
                     {STRIPE_MODE === "test" ? "TEST" : "LIVE"}
                   </Badge>
                 </div>
+                {selected && (
+                  <Link
+                    to={`/credit/${selected.id}`}
+                    className="num mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    Full research file <ArrowRight className="size-3" />
+                  </Link>
+                )}
                 <div className="mt-4 space-y-3">
                   <div className="rounded-lg border border-border/60 bg-foreground/[0.02] p-3">
                     <div className="num text-[10px] uppercase tracking-wider text-muted-foreground/60">

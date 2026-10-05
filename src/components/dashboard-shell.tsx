@@ -377,7 +377,12 @@ export default function DashboardShell() {
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <ScoreRing score={risk.score} tier={risk.tier} size={44} strokeWidth={4} />
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold tracking-tight">{c.name}</div>
+                          <Link
+                          to={`/credit/${c.id}`}
+                          className="font-semibold tracking-tight transition-colors hover:text-primary"
+                        >
+                          {c.name}
+                        </Link>
                           <div className="num text-[11px] text-muted-foreground/70">{c.id} · {c.registry}</div>
                         </div>
                       </div>
@@ -614,7 +619,12 @@ export function ComparableCredits({ credit }: { credit: Credit }) {
               className="flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors hover:border-primary/30"
             >
               <div className="min-w-0 flex-1">
-                <div className="font-semibold tracking-tight">{c.name}</div>
+                <Link
+                          to={`/credit/${c.id}`}
+                          className="font-semibold tracking-tight transition-colors hover:text-primary"
+                        >
+                          {c.name}
+                        </Link>
                 <div className="num text-[11px] text-muted-foreground/70">{c.id} · {c.type}</div>
                 <div className="num text-xs text-muted-foreground/70">{fmtMoney(c.price)}</div>
               </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -228,9 +229,12 @@ export function AnalyticsScreen() {
                     key={e.credit.id}
                     className="flex items-center gap-3 rounded-lg border border-border/60 bg-foreground/[0.02] px-3 py-2"
                   >
-                    <span className="num w-20 shrink-0 truncate text-xs font-semibold">
+                    <Link
+                      to={`/credit/${e.credit.id}`}
+                      className="num w-20 shrink-0 truncate text-xs font-semibold transition-colors hover:text-primary"
+                    >
                       {e.credit.id}
-                    </span>
+                    </Link>
                     <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-foreground/8">
                       <div
                         className={cn(

@@ -21,13 +21,6 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { fmtMoney, fmtPct, fmtTonnes, scoredCredits } from "@/lib/credits";
@@ -37,14 +30,8 @@ import {
   RecommendationBadge,
   ScoreRing,
   Sparkline,
-  TierBadge,
 } from "@/components/credit-visuals";
-import {
-  ComparableCredits,
-  RiskFactorCard,
-  WorkspaceNav,
-} from "@/components/dashboard-shell";
-import { CreditAnalyticsPanel } from "@/components/credit-analytics";
+import { WorkspaceNav } from "@/components/dashboard-shell";
 
 const SCAN_KINDS = [
   { id: "mispricing", label: "Mispricing radar", icon: <Radar className="size-4" />, blurb: "Market quote vs risk-adjusted fair value across every listed credit." },
@@ -82,10 +69,6 @@ function ScreenFooter() {
 /* ===================== /marketplace — buy-side listing board ===================== */
 
 export function MarketplaceScreen() {
-  const [selectedId, setSelectedId] = useState(scoredCredits[0].credit.id);
-  const selected = scoredCredits.find((e) => e.credit.id === selectedId) ?? scoredCredits[0];
-  const risk = selected.risk;
-
   const accum = scoredCredits.filter(
     (e) => e.risk.recommendation === "BUY" || e.risk.recommendation === "HOLD",
   ).length;
@@ -130,8 +113,8 @@ export function MarketplaceScreen() {
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
               Every listing carries a risk-adjusted fair value, an explainable
               recommendation and the evidence behind it — so the tape never gets the
-              last word. Select any company to chart its price, risk profile, stress
-              bars and evidence mix below.
+              last word. Open any company for its full research file: price vs fair
+              value, risk profile, stress tests and the evidence mix.
             </p>
           </div>
           <Button asChild className="gap-2">
@@ -159,26 +142,25 @@ export function MarketplaceScreen() {
           ))}
         </section>
 
-        <div className="mt-6 grid gap-5 lg:grid-cols-3">
-          <section className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
-            {scoredCredits.map((entry, i) => {
-              const c = entry.credit;
-              const r = entry.risk;
-              const up = c.priceChange >= 0;
-              const isSel = c.id === selectedId;
-              return (
-                <motion.button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setSelectedId(c.id)}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: Math.min(i * 0.04, 0.3) }}
+        <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {scoredCredits.map((entry, i) => {
+            const c = entry.credit;
+            const r = entry.risk;
+            const up = c.priceChange >= 0;
+            return (
+              <motion.div
+                key={c.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.4) }}
+              >
+                <Link
+                  to={`/credit/${c.id}`}
                   className={cn(
-                    "glass rounded-xl p-4 text-left transition-colors hover:border-primary/30",
-                    isSel && "border-primary/50 bg-primary/5",
-                    !isSel && r.recommendation === "AVOID" && "border-red-400/25",
-                    !isSel && r.recommendation === "BUY" && "border-emerald-300/25",
+                    "glass group flex h-full flex-col rounded-xl p-4 transition-colors hover:border-primary/40",
+                    r.recommendation === "AVOID" && "border-red-400/25",
+                    r.recommendation === "BUY" && "border-emerald-300/25",
+                    r.recommendation === "NEGOTIATE" && "border-amber-300/25",
                   )}
                 >
                   <div className="flex items-start gap-3">
@@ -220,67 +202,20 @@ export function MarketplaceScreen() {
                   <div className="mt-2">
                     <Sparkline data={c.priceHistory} positive={up} width={240} height={32} />
                   </div>
-                </motion.button>
-              );
-            })}
-          </section>
-
-          <aside className="space-y-4">
-            <Card className="glass">
-              <CardHeader className="flex items-start justify-between gap-2">
-                <div>
-                  <CardTitle className="text-base font-bold tracking-tight">
-                    {selected.credit.name}
-                  </CardTitle>
-                  <CardDescription>
-                    {selected.credit.id} · {selected.credit.registry} · {selected.credit.country}
-                  </CardDescription>
-                </div>
-                <TierBadge tier={risk.tier} />
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-lg border border-border/70 bg-foreground/[0.02] p-3">
-                    <div className="num text-[10px] uppercase tracking-wider text-muted-foreground/60">
-                      Market
-                    </div>
-                    <div className="num mt-1 text-lg font-bold">
-                      {fmtMoney(selected.credit.price)}
-                    </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/50 pt-2.5">
+                    <span className="num truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+                      {c.type} · {c.country}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors group-hover:text-primary">
+                      Full research file
+                      <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                    </span>
                   </div>
-                  <div className="rounded-lg border border-primary/25 bg-primary/5 p-3">
-                    <div className="num text-[10px] uppercase tracking-wider text-primary/80">
-                      Fair value
-                    </div>
-                    <div className="num mt-1 text-lg font-bold text-primary">
-                      {fmtMoney(risk.fairValue.point)}
-                    </div>
-                  </div>
-                </div>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {risk.recommendationWhy}
-                </p>
-                <Button asChild className="w-full gap-2">
-                  <Link to={`/portfolio/new?credit=${selected.credit.id}`}>
-                    Trade this credit <ArrowRight className="size-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-            <RiskFactorCard credit={selected.credit} />
-            <ComparableCredits credit={selected.credit} />
-          </aside>
-        </div>
-
-        <motion.section
-          initial={{ opacity: 0, y: 14 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.45 }}
-          className="mt-8"
-        >
-          <CreditAnalyticsPanel credit={selected.credit} risk={risk} />
-        </motion.section>
+                </Link>
+              </motion.div>
+            );
+          })}
+        </section>
       </main>
       <ScreenFooter />
     </div>
@@ -422,7 +357,12 @@ export function CorridorScans() {
                         {String(i + 1).padStart(2, "0")}
                       </span>
                       <div className="min-w-[150px] flex-1">
-                        <div className="text-sm font-medium">{c.name}</div>
+                        <Link
+                          to={`/credit/${c.id}`}
+                          className="text-sm font-medium transition-colors hover:text-primary"
+                        >
+                          {c.name}
+                        </Link>
                         <div className="num text-[11px] text-muted-foreground/70">
                           {c.id} · {c.registry}
                         </div>
@@ -475,7 +415,14 @@ export function CorridorScans() {
             {active === "waterfall" && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  Valuation walkthrough for {top.credit.name} ({top.credit.id}).
+                  Valuation walkthrough for{" "}
+                  <Link
+                    to={`/credit/${top.credit.id}`}
+                    className="font-medium text-foreground/90 transition-colors hover:text-primary"
+                  >
+                    {top.credit.name}
+                  </Link>{" "}
+                  ({top.credit.id}).
                 </p>
                 {waterfallSteps.map((s, i) => (
                   <div

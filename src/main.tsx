@@ -39,6 +39,9 @@ const Ledger = lazy(() =>
 const NewTrade = lazy(() =>
   import("./components/ledger.tsx").then((m) => ({ default: m.BuySellWorkspace })),
 );
+const CreditPage = lazy(() =>
+  import("./components/credit-detail.tsx").then((m) => ({ default: m.CreditDetailScreen })),
+);
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -204,6 +207,14 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <RequireAuth>
                     <Terminal />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/credit/:creditId"
+                element={
+                  <RequireAuth>
+                    <CreditPage />
                   </RequireAuth>
                 }
               />
