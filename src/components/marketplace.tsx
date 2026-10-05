@@ -22,16 +22,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { fmtMoney, fmtPct, fmtTonnes, scoredCredits } from "@/lib/credits";
 import { cn } from "@/lib/utils";
-import {
-  EvidenceBar,
-  RecommendationBadge,
-  ScoreRing,
-  Sparkline,
-} from "@/components/credit-visuals";
+import { RecommendationBadge, ScoreRing, Sparkline } from "@/components/credit-visuals";
 import { WorkspaceNav } from "@/components/dashboard-shell";
+import { ScanPanel } from "@/components/scan-panels";
 
 const SCAN_KINDS = [
   { id: "mispricing", label: "Mispricing radar", icon: <Radar className="size-4" />, blurb: "Market quote vs risk-adjusted fair value across every listed credit." },
@@ -228,45 +223,6 @@ export function CorridorScans() {
   const [active, setActive] = useState("mispricing");
   const kind = SCAN_KINDS.find((k) => k.id === active) ?? SCAN_KINDS[0];
 
-  const rows = [...scoredCredits].sort(
-    (a, b) => b.risk.mispricingPct - a.risk.mispricingPct,
-  );
-
-  const factorAvgs = scoredCredits[0].risk.breakdown.map((b) => {
-    const avg = Math.round(
-      scoredCredits.reduce((a, e) => {
-        const f = e.risk.breakdown.find((x) => x.key === b.key);
-        return a + (f?.value ?? 0);
-      }, 0) / scoredCredits.length,
-    );
-    return { ...b, avg };
-  });
-
-  const evidenceTotal = scoredCredits.reduce(
-    (a, e) => ({
-      verified: a.verified + e.risk.evidence.verified,
-      estimated: a.estimated + e.risk.evidence.estimated,
-      assumed: a.assumed + e.risk.evidence.assumed,
-      uncertain: a.uncertain + e.risk.evidence.uncertain,
-    }),
-    { verified: 0, estimated: 0, assumed: 0, uncertain: 0 },
-  );
-
-  const worstStresses = scoredCredits
-    .flatMap((e) => e.risk.stresses.map((s) => ({ ...s, credit: e.credit })))
-    .sort((a, b) => a.impactPct - b.impactPct)
-    .slice(0, 6);
-
-  const top = scoredCredits[0];
-  const riskFactor = 0.4 + 0.6 * (top.risk.score / 100);
-  const anchor = top.risk.fairValue.point / riskFactor;
-  const waterfallSteps = [
-    { label: "Evidence anchor", value: fmtMoney(anchor), note: "intrinsic value before risk" },
-    { label: "× risk factor", value: `×${riskFactor.toFixed(2)}`, note: `composite score ${top.risk.score}/100` },
-    { label: "Fair value (point)", value: fmtMoney(top.risk.fairValue.point), note: `band ${fmtMoney(top.risk.fairValue.low)} – ${fmtMoney(top.risk.fairValue.high)}` },
-    { label: "Market quote", value: fmtMoney(top.credit.price), note: `${top.risk.mispricingPct >= 0 ? "+" : ""}${top.risk.mispricingPct.toFixed(1)}% vs fair value` },
-  ];
-
   return (
     <div className="relative min-h-screen overflow-x-clip">
       <div className="pointer-events-none fixed inset-0 bg-grid opacity-60 [mask-image:radial-gradient(70%_50%_at_50%_0%,black,transparent)]" />
@@ -341,147 +297,8 @@ export function CorridorScans() {
             </Badge>
           </div>
 
-          <div className="mt-4 space-y-4">
-            {active === "mispricing" && (
-              <div className="space-y-2">
-                {rows.map((e, i) => {
-                  const c = e.credit;
-                  const r = e.risk;
-                  const over = r.mispricingPct >= 0;
-                  return (
-                    <div
-                      key={c.id}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border/60 bg-foreground/[0.02] px-3 py-2.5"
-                    >
-                      <span className="num w-6 shrink-0 text-xs text-muted-foreground/60">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                      <div className="min-w-[150px] flex-1">
-                        <Link
-                          to={`/credit/${c.id}`}
-                          className="text-sm font-medium transition-colors hover:text-primary"
-                        >
-                          {c.name}
-                        </Link>
-                        <div className="num text-[11px] text-muted-foreground/70">
-                          {c.id} · {c.registry}
-                        </div>
-                      </div>
-                      <div className="num w-20 text-right text-xs">
-                        {fmtMoney(c.price)}
-                      </div>
-                      <div className="num w-24 text-right text-xs text-primary">
-                        FV {fmtMoney(r.fairValue.point)}
-                      </div>
-                      <div
-                        className={cn(
-                          "num w-20 text-right text-xs font-bold",
-                          over ? "text-amber-300" : "text-emerald-400",
-                        )}
-                      >
-                        {over ? "+" : ""}
-                        {r.mispricingPct.toFixed(1)}%
-                      </div>
-                      <RecommendationBadge rec={r.recommendation} />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {active === "decomposition" && (
-              <div className="space-y-3">
-                {factorAvgs.map((b) => (
-                  <div key={b.key} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground/80">
-                        {b.label}
-                        <span className="num ml-2 text-[10px] text-muted-foreground/50">
-                          ×{Math.round(b.weight * 100)}% weight
-                        </span>
-                      </span>
-                      <span className="num font-semibold">{b.avg}</span>
-                    </div>
-                    <Progress value={b.avg} className="h-1.5" />
-                  </div>
-                ))}
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Portfolio average across {scoredCredits.length} credits. The composite
-                  is the weighted sum of these six factors — no black box.
-                </p>
-              </div>
-            )}
-
-            {active === "waterfall" && (
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Valuation walkthrough for{" "}
-                  <Link
-                    to={`/credit/${top.credit.id}`}
-                    className="font-medium text-foreground/90 transition-colors hover:text-primary"
-                  >
-                    {top.credit.name}
-                  </Link>{" "}
-                  ({top.credit.id}).
-                </p>
-                {waterfallSteps.map((s, i) => (
-                  <div
-                    key={s.label}
-                    className={cn(
-                      "flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
-                      i === 2
-                        ? "border-primary/30 bg-primary/5"
-                        : "border-border/60 bg-foreground/[0.02]",
-                    )}
-                  >
-                    <div>
-                      <div className="text-sm font-medium">{s.label}</div>
-                      <div className="num text-[11px] text-muted-foreground/70">{s.note}</div>
-                    </div>
-                    <span
-                      className={cn(
-                        "num text-sm font-bold",
-                        i === 2 ? "text-primary" : "text-foreground/90",
-                      )}
-                    >
-                      {s.value}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {active !== "mispricing" &&
-              active !== "decomposition" &&
-              active !== "waterfall" && (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-semibold">Top findings</h3>
-                    {worstStresses.map((s) => (
-                      <div
-                        key={`${s.credit.id}-${s.name}`}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-red-400/15 bg-red-500/[0.03] px-3 py-2.5"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium">{s.name}</div>
-                          <div className="num text-[11px] text-muted-foreground/70">
-                            {s.credit.id} · {s.detail}
-                          </div>
-                        </div>
-                        <span className="num shrink-0 rounded bg-red-400/10 px-2 py-1 text-xs font-bold text-red-300">
-                          {s.impactPct}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-foreground/[0.02] p-4">
-                    <h3 className="text-sm font-semibold">Evidence mix feeding this scan</h3>
-                    <div className="mt-3">
-                      <EvidenceBar evidence={evidenceTotal} />
-                    </div>
-                  </div>
-                </div>
-              )}
+          <div className="mt-4" key={active}>
+            <ScanPanel id={active} />
           </div>
         </motion.section>
       </main>
