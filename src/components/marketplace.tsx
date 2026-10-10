@@ -100,7 +100,7 @@ export function MarketplaceScreen() {
         >
           <div>
             <div className="num text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-              Marketplace · live tape
+              Marketplace · sample tape
             </div>
             <h1 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">
               Buy the evidence, not the quote
@@ -288,12 +288,11 @@ export function CorridorScans() {
                 </p>
               </div>
             </div>
-            <Badge variant="secondary" className="border-emerald-300/30 text-[10px] text-emerald-300">
-              <span className="relative flex size-1.5 mr-1.5">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-300 opacity-70" />
-                <span className="relative inline-flex size-1.5 rounded-full bg-emerald-300" />
-              </span>
-              LIVE
+            <Badge
+              variant="secondary"
+              className="border-border/60 bg-foreground/[0.03] text-[10px] text-muted-foreground"
+            >
+              SAMPLE DATA · NO LIVE FEED
             </Badge>
           </div>
 

@@ -409,13 +409,12 @@ export default function DashboardShell() {
           <aside className="space-y-4">
             <Card className="glass">
               <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-sm font-semibold">Live threat feed</CardTitle>
-                <Badge variant="secondary" className="text-[10px] border-emerald-300/30 text-emerald-300">
-                  <span className="relative flex size-1.5">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-300 opacity-70" />
-                    <span className="relative inline-flex size-1.5 rounded-full bg-emerald-300" />
-                  </span>
-                  Live
+                <CardTitle className="text-sm font-semibold">Risk signal feed</CardTitle>
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] border-border/60 bg-foreground/[0.03] text-muted-foreground"
+                >
+                  SAMPLE DATA
                 </Badge>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -849,7 +848,7 @@ export function CreditDetailCard({ credit, risk }: { credit: Credit; risk: Retur
               ))}
             </div>
             <div className="glass rounded-xl p-4">
-              <h4 className="text-sm font-semibold mb-2">Live activity feed</h4>
+              <h4 className="text-sm font-semibold mb-2">Activity feed · sample data</h4>
               <div className="space-y-2">
                 {[
                   { time: "03:14:21", label: "Delta Biochar — volume +9%", detail: "30d turnover expanding; exit risk dropping." },

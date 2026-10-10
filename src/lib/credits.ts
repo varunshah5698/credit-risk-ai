@@ -83,18 +83,143 @@ export interface StressScenario {
 
 export type Recommendation = "BUY" | "HOLD" | "NEGOTIATE" | "AVOID";
 
+/* ------------------------------------------------------------------ *
+ * Three deliberately separate measurements.
+ *
+ * 1. score / tier   — how RISKY the credit looks (higher score = safer).
+ * 2. evidenceConfidence — how RELIABLE the supporting evidence is.
+ * 3. evidenceCoverage   — how many required checks have usable evidence.
+ *
+ * (2) and (3) are computed ONLY from the per-factor evidence checks, never
+ * from the risk tier. A high-scoring credit with thin evidence must show weak
+ * confidence, and a low-scoring credit backed by primary records must show
+ * strong confidence. Missing evidence never earns a reassuring number.
+ * ------------------------------------------------------------------ */
+
+export type FactorKey =
+  | "carbonIntegrity"
+  | "deliveryConfidence"
+  | "liquidity"
+  | "regulatoryEligibility"
+  | "issuerCredibility"
+  | "mrv";
+
+/** Ordered list of the six required checks behind every assessment. */
+export const FACTOR_ORDER: FactorKey[] = [
+  "carbonIntegrity",
+  "deliveryConfidence",
+  "liquidity",
+  "regulatoryEligibility",
+  "issuerCredibility",
+  "mrv",
+];
+
+export const FACTOR_LABELS: Record<FactorKey, string> = {
+  carbonIntegrity: "Carbon integrity",
+  deliveryConfidence: "Delivery confidence",
+  liquidity: "Liquidity",
+  regulatoryEligibility: "Regulatory eligibility",
+  issuerCredibility: "Issuer credibility",
+  mrv: "MRV quality",
+};
+
+/**
+ * Evidence state for one required check.
+ * `uncertain` = an open question, `missing` = nothing on file. Neither counts
+ * as usable evidence for coverage, and neither earns confidence.
+ */
+export type EvidenceStatus =
+  | "verified"
+  | "estimated"
+  | "assumed"
+  | "uncertain"
+  | "missing";
+
+/** How much a single check contributes to evidence confidence (0–1). */
+export const STATUS_QUALITY: Record<EvidenceStatus, number> = {
+  verified: 1,
+  estimated: 0.6,
+  assumed: 0.3,
+  uncertain: 0.1,
+  missing: 0,
+};
+
+/** Evidence counts as usable when there is *something* on file for the check. */
+export const STATUS_IS_USABLE: Record<EvidenceStatus, boolean> = {
+  verified: true,
+  estimated: true,
+  assumed: true,
+  uncertain: false,
+  missing: false,
+};
+
+export interface CheckRecord {
+  key: FactorKey;
+  label: string;
+  status: EvidenceStatus;
+  /** the risk factor's own 0–100 input, for context next to its evidence */
+  factorValue: number;
+  weight: number;
+  quality: number;
+  usable: boolean;
+}
+
+export type ValuationConfidence = "sufficient" | "limited" | "insufficient";
+
+export interface ValuationAdjustment {
+  label: string;
+  detail: string;
+  /** USD/t applied to move from anchor to fair value (null = context row) */
+  effectUsd: number | null;
+}
+
+/**
+ * Everything a reviewer needs to reproduce and challenge one valuation.
+ * Every field maps to a real step in the calculation — nothing illustrative.
+ */
+export interface ValuationDetail {
+  /** `market` means the quote was used as its own anchor (circular — not defensible) */
+  anchorKind: "evidence" | "market" | "none";
+  anchorSource: string;
+  anchorValueUsd: number | null;
+  adjustments: ValuationAdjustment[];
+  pointUsd: number;
+  lowUsd: number;
+  highUsd: number;
+  marketQuoteUsd: number;
+  /** ISO date the quote refers to */
+  quoteAsOf: string;
+  quoteIsSample: boolean;
+  /** null when confidence is insufficient — no defensible mispricing exists */
+  mispricingPct: number | null;
+  mispricingRule: string;
+  recommendationRule: string;
+  confidence: ValuationConfidence;
+  confidenceWhy: string;
+  missingEvidence: string[];
+  assumptions: string[];
+}
+
 export interface RiskAssessment {
   score: number; // 0–100, higher = safer
   tier: "A" | "B" | "C" | "D";
   tierLabel: "Prime" | "Investment Grade" | "Watch" | "High Risk";
   breakdown: ScoreBreakdown[];
+  /** derived from evidenceConfidence, NOT from the tier */
   confidence: "High" | "Medium" | "Low";
+  /** 0–100 — reliability/sufficiency of the evidence behind the assessment */
+  evidenceConfidence: number;
+  /** 0–100 — share of required checks carrying usable evidence */
+  evidenceCoverage: number;
+  /** per-check evidence state, drives confidence and coverage */
+  checks: CheckRecord[];
   /** risk-adjusted fair value range, USD per tonne */
   fairValue: { low: number; point: number; high: number };
-  /** + = market priced above fair value (overpriced) */
+  /** + = market priced above fair value (overpriced). Mechanical value — gate UI on `valuation.confidence`. */
   mispricingPct: number;
   recommendation: Recommendation;
   recommendationWhy: string;
+  valuation: ValuationDetail;
   evidence: EvidenceLayer;
   stresses: StressScenario[];
   /** primary sources feeding this assessment */
@@ -117,23 +242,107 @@ function tierFor(score: number): RiskAssessment["tier"] {
   return "D";
 }
 
-function tierMeta(tier: RiskAssessment["tier"]): Pick<RiskAssessment, "tierLabel" | "confidence"> {
+function tierMeta(tier: RiskAssessment["tier"]): Pick<RiskAssessment, "tierLabel"> {
   switch (tier) {
     case "A":
-      return { tierLabel: "Prime", confidence: "High" as const };
+      return { tierLabel: "Prime" as const };
     case "B":
-      return { tierLabel: "Investment Grade", confidence: "Medium" as const };
+      return { tierLabel: "Investment Grade" as const };
     case "C":
-      return { tierLabel: "Watch", confidence: "Medium" as const };
+      return { tierLabel: "Watch" as const };
     case "D":
-      return { tierLabel: "High Risk", confidence: "Low" as const };
+      return { tierLabel: "High Risk" as const };
   }
 }
 
+/**
+ * Evidence confidence is derived from the per-factor checks alone.
+ * It deliberately ignores the risk score and tier: a Prime credit backed only
+ * by assumptions still scores low here.
+ */
+export function computeEvidenceConfidence(checks: CheckRecord[]): number {
+  if (checks.length === 0) return 0;
+  // Checks are weighted by their risk-engine importance, so a thin MRV file on
+  // an MRV-heavy credit costs more confidence than a thin liquidity file.
+  const totalWeight = checks.reduce((a, c) => a + c.weight, 0) || 1;
+  const weighted = checks.reduce((a, c) => a + c.quality * c.weight, 0);
+  return Math.round((weighted / totalWeight) * 100);
+}
+
+/** Share of required checks carrying usable (non-missing, non-uncertain) evidence. */
+export function computeEvidenceCoverage(checks: CheckRecord[]): number {
+  if (checks.length === 0) return 0;
+  return Math.round(
+    (checks.filter((c) => c.usable).length / checks.length) * 100,
+  );
+}
+
+/** Confidence band. Independent of score and tier by construction. */
+export function confidenceBand(evidenceConfidence: number): "High" | "Medium" | "Low" {
+  if (evidenceConfidence >= 70) return "High";
+  if (evidenceConfidence >= 45) return "Medium";
+  return "Low";
+}
+
+/** Thresholds at which a fair-value estimate may be presented as defensible. */
+const VALUATION_SUFFICIENT_CONF = 60;
+const VALUATION_SUFFICIENT_COVER = 80;
+const VALUATION_LIMITED_CONF = 40;
+const VALUATION_LIMITED_COVER = 50;
+
+export function valuationConfidenceFor(
+  anchorKind: ValuationDetail["anchorKind"],
+  evidenceConfidence: number,
+  evidenceCoverage: number,
+): ValuationConfidence {
+  // Without an independent anchor the quote is its own benchmark, so no
+  // mispricing claim can be made no matter how good the evidence file is.
+  if (anchorKind === "none" || anchorKind === "market") return "insufficient";
+  if (
+    evidenceConfidence >= VALUATION_SUFFICIENT_CONF &&
+    evidenceCoverage >= VALUATION_SUFFICIENT_COVER
+  ) {
+    return "sufficient";
+  }
+  if (
+    evidenceConfidence >= VALUATION_LIMITED_CONF &&
+    evidenceCoverage >= VALUATION_LIMITED_COVER
+  ) {
+    return "limited";
+  }
+  return "insufficient";
+}
+
+function buildChecks(
+  statuses: readonly EvidenceStatus[],
+  breakdown: ScoreBreakdown[],
+): CheckRecord[] {
+  return breakdown.map((b, i) => {
+    const key = b.key as FactorKey;
+    const status: EvidenceStatus = statuses[i] ?? "missing";
+    return {
+      key,
+      label: b.label,
+      status,
+      factorValue: b.value,
+      weight: b.weight,
+      quality: STATUS_QUALITY[status],
+      usable: STATUS_IS_USABLE[status],
+    };
+  });
+}
+
+/** Quote date shared by every sample quote in the static dataset. */
+export const SAMPLE_QUOTE_AS_OF = new Date().toISOString().slice(0, 10);
+
 /** Per-credit financial-intelligence inputs (illustrative sample data). */
 interface CreditIntel {
-  /** evidence-anchored intrinsic value before risk adjustment, USD/t */
-  anchorValue: number;
+  /**
+   * Evidence-anchored intrinsic value before risk adjustment, USD/t.
+   * `null` means no independent anchor exists — valuation is then flagged
+   * insufficient rather than quietly falling back to the market quote.
+   */
+  anchorValue: number | null;
   /** half-width of the fair-value band, fraction */
   spread: number;
   evidence: EvidenceLayer;
@@ -144,6 +353,21 @@ interface CreditIntel {
   sources: string[];
 }
 
+/**
+ * Used only for a credit id that has no intel entry on file. Deliberately has
+ * no anchor: falling back to the market quote would let the quote "prove" its
+ * own mispricing, which is the failure mode this model refuses to run.
+ */
+const DEFAULT_INTEL: CreditIntel = {
+  anchorValue: null,
+  spread: 0.12,
+  evidence: { verified: 0, estimated: 0, assumed: 0, uncertain: 0 },
+  stresses: [],
+  recWhy:
+    "No independent valuation anchor is on file for this credit, so no fair-value or mispricing call is made.",
+  sources: ["No source records on file"],
+};
+
 const INTEL: Record<string, CreditIntel> = {
   "VCS-1942": {
     anchorValue: 13.1,
@@ -153,7 +377,7 @@ const INTEL: Record<string, CreditIntel> = {
       { name: "Methodology revision", detail: "VCS REDD+ methodology tightened", impactPct: -12 },
       { name: "Market-wide selloff", detail: "Segment prices fall 30%", impactPct: -18 },
     ],
-    recWhy: "Fairly priced against verified delivery history; deep 30-day turnover keeps exit risk low.",
+    recWhy: "Verified delivery history and deep 30-day turnover keep exit risk low, and the quote sits only a hair above fair value — close enough that the premium argues for negotiating rather than paying the ask.",
     sources: ["Registry issuance ledger", "2024 verification report", "Market trade tape"],
   },
   "GS-7703": {
@@ -175,7 +399,7 @@ const INTEL: Record<string, CreditIntel> = {
       { name: "Usage audit miss", detail: "Daily-use surveys fall below 60% benchmark", impactPct: -22 },
       { name: "Distribution audit", detail: "Serialised stove IDs unverified for 18% of units", impactPct: -15 },
     ],
-    recWhy: "Priced slightly above risk-adjusted value; credible issuer, but usage-survey evidence is thinner than peers.",
+    recWhy: "Priced far above risk-adjusted value for the evidence behind it: the issuer is credible, but usage-survey evidence is thinner than peers' and does not support the premium the tape is asking.",
     sources: ["Registry issuance ledger", "Independent usage survey", "Issuer disclosures"],
   },
   "ACR-5529": {
@@ -186,7 +410,7 @@ const INTEL: Record<string, CreditIntel> = {
       { name: "Wildfire reversal", detail: "Buffer pool contribution rises", impactPct: -9 },
       { name: "Demand shift", detail: "Buyers move to durable removals", impactPct: -14 },
     ],
-    recWhy: "Trades below risk-adjusted value with inventory-verified carbon stock and a long permanence buffer.",
+    recWhy: "Inventory-verified carbon stock and a long permanence buffer make this one of the strongest credits on the book — but the quote already pays well above the risk-adjusted value for that quality. The quality is not the issue, the entry price is.",
     sources: ["Registry inventory audit", "Verification report", "Market trade tape"],
   },
   "VCS-8817": {
@@ -242,7 +466,7 @@ const INTEL: Record<string, CreditIntel> = {
       { name: "Cost curve drop", detail: "DAC energy costs fall 40%", impactPct: -18 },
       { name: "Policy retreat", detail: "Purchase incentives lapse", impactPct: -23 },
     ],
-    recWhy: "Highest-integrity removal on the board and fairly priced for institutions; the constraint is access and float, not quality.",
+    recWhy: "Highest-integrity removal on the board, and nothing about the project itself is in question — but the quote sits well above what even that quality supports, and with very thin float the premium is hard to exit. Quality is not the issue, the entry price is.",
     sources: ["Registry issuance ledger", "Storage certification", "Broker quotes"],
   },
   "VCS-2260": {
@@ -399,6 +623,68 @@ const INTEL: Record<string, CreditIntel> = {
   },
 };
 
+/**
+ * Evidence state for the six required checks on every credit, in FACTOR_ORDER.
+ *
+ * This map is the ONLY input to evidenceConfidence and evidenceCoverage — which
+ * is what keeps those two measurements independent of the risk score and tier.
+ * Sample data: statuses describe what is on file in this prototype's evidence
+ * file, not a live registry feed.
+ *
+ * `uncertain` = open question, `missing` = nothing on file. Neither counts as
+ * usable evidence, and neither earns confidence — a gap is never reassuring.
+ */
+const CHECKS_BY_ID: Record<string, readonly EvidenceStatus[]> = {
+  /* ---- original cohort ---- */
+  "VCS-1942": ["verified", "verified", "estimated", "verified", "verified", "verified"],
+  "GS-7703": ["estimated", "estimated", "assumed", "uncertain", "estimated", "assumed"],
+  "GS-3311": ["verified", "estimated", "estimated", "verified", "verified", "uncertain"],
+  "ACR-5529": ["verified", "verified", "estimated", "verified", "verified", "verified"],
+  "VCS-8817": ["verified", "verified", "assumed", "verified", "estimated", "verified"],
+  "CAR-1140": ["uncertain", "assumed", "assumed", "missing", "assumed", "uncertain"],
+  "GS-9902": ["uncertain", "verified", "assumed", "uncertain", "estimated", "assumed"],
+  "VCS-4408": ["verified", "assumed", "estimated", "verified", "estimated", "estimated"],
+  "ACR-8861": ["verified", "verified", "assumed", "verified", "verified", "verified"],
+  "VCS-2260": ["uncertain", "assumed", "assumed", "estimated", "uncertain", "assumed"],
+
+  /* ---- second cohort: 12 real-world projects and programmes ---- */
+  "VCS-674": ["verified", "verified", "verified", "verified", "verified", "verified"],
+  "VCS-612": ["verified", "verified", "verified", "verified", "verified", "verified"],
+  "VCS-902": ["uncertain", "uncertain", "assumed", "missing", "uncertain", "missing"],
+  "VCS-1748": ["verified", "estimated", "assumed", "verified", "estimated", "estimated"],
+  "VCS-934": ["uncertain", "uncertain", "missing", "assumed", "uncertain", "missing"],
+  "VCS-985": ["verified", "verified", "verified", "verified", "verified", "verified"],
+  "VCS-944": ["verified", "verified", "verified", "verified", "verified", "verified"],
+  "VCS-2250": ["verified", "verified", "verified", "verified", "verified", "verified"],
+  "VCS-1402": ["verified", "estimated", "assumed", "verified", "verified", "estimated"],
+  "VCS-1052": ["verified", "verified", "verified", "verified", "verified", "verified"],
+  "VCS-1737": ["uncertain", "estimated", "assumed", "uncertain", "uncertain", "assumed"],
+  "VCS-1627": ["verified", "estimated", "assumed", "verified", "assumed", "estimated"],
+};
+
+/** Default for a credit with no checks on file: every check missing. */
+const NO_CHECKS: readonly EvidenceStatus[] = [
+  "missing",
+  "missing",
+  "missing",
+  "missing",
+  "missing",
+  "missing",
+];
+
+/** Local money formatter. `fmtMoney` is a const declared later in this module, so
+ *  calling it from `assessRisk` (which runs while `scoredCredits` initialises)
+ *  would hit the temporal dead zone. Function declarations hoist, consts don't. */
+function usd(n: number): string {
+  return `$${n.toLocaleString("en-US", {
+    minimumFractionDigits: n < 20 ? 2 : 0,
+    maximumFractionDigits: n < 20 ? 2 : 0,
+  })}`;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
 /** Deterministic, explainable composite score + financial assessment. Higher score = lower risk. */
 export function assessRisk(c: Credit): RiskAssessment {
   const breakdown: ScoreBreakdown[] = [
@@ -413,33 +699,165 @@ export function assessRisk(c: Credit): RiskAssessment {
     breakdown.reduce((acc, b) => acc + b.value * b.weight, 0),
   );
   const tier = tierFor(score);
-  const { tierLabel, confidence } = tierMeta(tier);
+  const { tierLabel } = tierMeta(tier);
 
-  // Risk-adjusted fair value: evidence anchor, discounted by the composite risk score.
-  const intel = INTEL[c.id] ?? {
-    anchorValue: c.price,
-    spread: 0.12,
-    evidence: { verified: 12, estimated: 8, assumed: 5, uncertain: 4 },
-    stresses: [],
-    recWhy: "Assessed from market and registry data on file.",
-    sources: ["Registry issuance ledger", "Market trade tape"],
-  };
+  const intel = INTEL[c.id] ?? DEFAULT_INTEL;
+  const checks = buildChecks(CHECKS_BY_ID[c.id] ?? NO_CHECKS, breakdown);
+
+  /* ---- measurements 2 and 3: evidence confidence and coverage ----
+   * Derived from `checks` only. Nothing here reads `score` or `tier`, so a
+   * Prime credit with a thin file still reports low confidence. */
+  const evidenceConfidence = computeEvidenceConfidence(checks);
+  const evidenceCoverage = computeEvidenceCoverage(checks);
+  const confidence = confidenceBand(evidenceConfidence);
+
+  /* ---- valuation ---- */
+  const anchorKind: ValuationDetail["anchorKind"] =
+    intel.anchorValue == null ? "none" : "evidence";
+  const anchorSource = intel.sources[0] ?? "No source record on file";
+  const anchor = intel.anchorValue;
   const riskFactor = 0.4 + 0.6 * (score / 100);
-  const point = intel.anchorValue * riskFactor;
-  const fairValue = {
-    low: point * (1 - intel.spread),
-    point,
-    high: point * (1 + intel.spread),
-  };
-  const mispricingPct = ((c.price - point) / point) * 100;
 
-  // Rule-derived recommendation; per-credit intel may override where context demands.
+  // With no independent anchor the quote is not discounted, it is simply not
+  // benchmarked. Falling back to the quote here would let it prove itself, so
+  // no band is invented either: without an anchor there is no range to claim.
+  const point = anchor == null ? c.price : anchor * riskFactor;
+  const fairValue =
+    anchor == null
+      ? { low: round2(c.price), point: round2(c.price), high: round2(c.price) }
+      : {
+          low: round2(point * (1 - intel.spread)),
+          point: round2(point),
+          high: round2(point * (1 + intel.spread)),
+        };
+  const mispricingPct = point === 0 ? 0 : ((c.price - point) / point) * 100;
+
+  const valuationConfidence = valuationConfidenceFor(
+    anchorKind,
+    evidenceConfidence,
+    evidenceCoverage,
+  );
+
+  const missingEvidence = checks
+    .filter((ch) => ch.status === "missing" || ch.status === "uncertain")
+    .map((ch) =>
+      ch.status === "missing"
+        ? `${ch.label}: no record on file`
+        : `${ch.label}: open question`,
+    );
+
+  const confidenceWhy =
+    anchorKind === "none"
+      ? "No independent valuation anchor is on file, so the market quote cannot be benchmarked against itself."
+      : valuationConfidence === "sufficient"
+        ? `Evidence confidence ${evidenceConfidence}/100 with ${evidenceCoverage}% of required checks usable, meeting the sufficiency thresholds (at least 60 confidence and 80 coverage).`
+        : valuationConfidence === "limited"
+          ? `Evidence confidence ${evidenceConfidence}/100 with ${evidenceCoverage}% of required checks usable, below the sufficiency thresholds (60 confidence, 80 coverage), so the range is indicative rather than decision-grade.`
+          : `Evidence confidence ${evidenceConfidence}/100 with only ${evidenceCoverage}% of required checks usable, below the minimum (40 confidence, 50 coverage), so no defensible fair value or mispricing figure exists.`;
+
+  const adjustments: ValuationAdjustment[] =
+    anchor == null
+      ? [
+          {
+            label: "Evidence anchor",
+            detail: "none on file, no risk discount applied",
+            effectUsd: null,
+          },
+          {
+            label: "Market quote",
+            detail: `${usd(c.price)} per t, sample quote as of ${SAMPLE_QUOTE_AS_OF}`,
+            effectUsd: null,
+          },
+        ]
+      : [
+          {
+            label: "Evidence anchor",
+            detail: `${anchorSource}, ${usd(anchor)} per t`,
+            effectUsd: round2(anchor),
+          },
+          {
+            label: "Composite risk discount",
+            detail: `x${riskFactor.toFixed(2)} = 0.40 + 0.60 x (${score}/100)`,
+            effectUsd: round2(point - anchor),
+          },
+          {
+            label: "Evidence spread",
+            detail: `+/-${Math.round(intel.spread * 100)}% around the point estimate`,
+            effectUsd: null,
+          },
+          {
+            label: "Market quote",
+            detail: `${usd(c.price)} per t, sample quote as of ${SAMPLE_QUOTE_AS_OF}`,
+            effectUsd: null,
+          },
+        ];
+
+  const assumptions = [
+    ...checks
+      .filter((ch) => ch.status === "assumed")
+      .map((ch) => `${ch.label}: stated assumption, not verified`),
+    "Fair value = evidence anchor x (0.40 + 0.60 x composite/100).",
+    `Fair-value band is +/-${Math.round(intel.spread * 100)}% around the point estimate.`,
+    "Market quotes, price history and volumes are sample data for this pilot build.",
+  ];
+
+  const mispricingRule =
+    valuationConfidence === "insufficient"
+      ? "Not reported: no defensible anchor exists for this credit."
+      : "(market quote - fair-value point) / fair-value point x 100";
+
+  /* ---- recommendation ---- */
   let recommendation: Recommendation;
   if (mispricingPct > 12) recommendation = "AVOID";
   else if (mispricingPct > 4) recommendation = "NEGOTIATE";
-  else if (mispricingPct < -8) recommendation = "BUY";
-  else recommendation = "HOLD";
-  if (intel.rec) recommendation = intel.rec;
+  // A valuation we cannot defend may still warn against overpaying, but it is
+  // never allowed to declare a bargain: that claim needs a real anchor.
+  else if (mispricingPct < -8 && valuationConfidence !== "insufficient") {
+    recommendation = "BUY";
+  } else recommendation = "HOLD";
+
+  const intelOverrideApplied =
+    intel.rec !== undefined && valuationConfidence !== "insufficient";
+  if (intelOverrideApplied) recommendation = intel.rec as Recommendation;
+
+  const recommendationRule =
+    (valuationConfidence === "insufficient"
+      ? "Valuation insufficient: above 12% of anchor means AVOID, above 4% means NEGOTIATE, otherwise HOLD; BUY is withheld without a defensible anchor."
+      : "Above 12% of fair value means AVOID, above 4% means NEGOTIATE, below -8% means BUY, otherwise HOLD.") +
+    (intelOverrideApplied ? " Per-credit intel override applied." : "");
+
+  let recommendationWhy: string;
+  if (valuationConfidence === "insufficient") {
+    const gaps = missingEvidence.length
+      ? ` Checks not usable: ${missingEvidence.join("; ")}.`
+      : "";
+    recommendationWhy = `Valuation confidence is insufficient. ${confidenceWhy}${gaps} The ${recommendation} call rests on the ${score}/100 risk composite and the open items on file, not on a fair-value comparison.`;
+  } else if (valuationConfidence === "limited") {
+    recommendationWhy = `${intel.recWhy} (Valuation confidence is limited: ${confidenceWhy})`;
+  } else {
+    recommendationWhy = intel.recWhy;
+  }
+
+  const valuation: ValuationDetail = {
+    anchorKind,
+    anchorSource,
+    anchorValueUsd: anchor == null ? null : round2(anchor),
+    adjustments,
+    pointUsd: fairValue.point,
+    lowUsd: fairValue.low,
+    highUsd: fairValue.high,
+    marketQuoteUsd: c.price,
+    quoteAsOf: SAMPLE_QUOTE_AS_OF,
+    quoteIsSample: true,
+    mispricingPct:
+      valuationConfidence === "insufficient" ? null : round1(mispricingPct),
+    mispricingRule,
+    recommendationRule,
+    confidence: valuationConfidence,
+    confidenceWhy,
+    missingEvidence,
+    assumptions,
+  };
 
   return {
     score,
@@ -447,10 +865,14 @@ export function assessRisk(c: Credit): RiskAssessment {
     tierLabel,
     breakdown,
     confidence,
+    evidenceConfidence,
+    evidenceCoverage,
+    checks,
     fairValue,
     mispricingPct,
     recommendation,
-    recommendationWhy: intel.recWhy,
+    recommendationWhy,
+    valuation,
     evidence: intel.evidence,
     stresses: intel.stresses,
     sources: intel.sources,

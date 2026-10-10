@@ -68,7 +68,7 @@ export function LedgerScreen() {
 
   const kpis = [
     { label: "Positions", value: String(POSITIONS.length), sub: `${fmtTonnes(heldTonnes)} t held` },
-    { label: "Market value", value: fmtMoney(marketValue), sub: "marked to live tape" },
+    { label: "Market value", value: fmtMoney(marketValue), sub: "marked to sample quote" },
     {
       label: "Unrealized P&L",
       value: `${pnl >= 0 ? "+" : "−"}${fmtMoney(Math.abs(pnl))}`,

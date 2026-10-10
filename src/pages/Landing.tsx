@@ -625,7 +625,7 @@ export default function Landing() {
                     <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-70" />
                     <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
                   </span>
-                  SYSTEM STATUS · 42 REGISTRY FEEDS LIVE
+                  PILOT BUILD · SAMPLE DATA · 22 CREDIT COMPANIES SCORED
                 </motion.div>
 
                 <motion.h1
